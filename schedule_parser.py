@@ -5,6 +5,10 @@ import openpyxl
 import xlrd
 import re
 
+BASE_DIR = os.path.join(os.path.dirname(__file__), "sheets")
+print("BASE_DIR =", BASE_DIR)
+print("Содержимое BASE_DIR:", os.listdir(BASE_DIR))
+
 DAY_MAP = {
     "понедельник": 0,
     "вторник": 1,
@@ -259,4 +263,5 @@ def format_schedule(lessons, is_even, date, group):
                 result.append(f"\\- {escaped_line}")
             result.append("")
     
+
     return "\n".join(result)
