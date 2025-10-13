@@ -183,6 +183,7 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
             current_time = str(time).strip()
         
         # Если есть данные о паре - добавляем (используя current_time)
+        # ВАЖНОЕ ИЗМЕНЕНИЕ: убираем проверку на дублирование времени, чтобы разрешить несколько пар в одно время
         if current_time and subject_cell and str(subject_cell).strip():
             # Обрабатываем многострочное содержимое - берем ВСЕ строки
             subject_text = str(subject_cell)
@@ -194,9 +195,8 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
                     subject_lines.append(cleaned_line)
             
             if subject_lines:
-                # Проверяем, нет ли уже пары с таким временем (избегаем дублирования)
-                if not any(lesson[0] == current_time for lesson in lessons):
-                    lessons.append((current_time, subject_lines))
+                # УБИРАЕМ ПРОВЕРКУ НА ДУБЛИРОВАНИЕ ВРЕМЕНИ - разрешаем несколько пар в одно время
+                lessons.append((current_time, subject_lines))
         
         # Переходим к следующей строке
         i += 1
