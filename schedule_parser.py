@@ -165,15 +165,51 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
     if found_index == -1:
         return []
     
-    # Собираем пары
-    lessons = []
-    i = found_index + 1
+    # Регекс для времени вида 08:30-10:05 (учитываем пробелы)
+    time_re = re.compile(r'(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})')
     
-    while i < len(schedule_data) and (not schedule_data[i][0] or not str(schedule_data[i][0]).strip()):
-        time = schedule_data[i][1] if len(schedule_data[i]) > 1 else ""
-        subject_cell = schedule_data[i][group_column] if len(schedule_data[i]) > group_column else ""
+    lessons = []
+    # бежим по строкам после найденной даты, пока не встретим новую дату/заголовок
+    for i in range(found_index + 1, len(schedule_data)):
+        row = schedule_data[i]
+        if not row:
+            continue
         
-        if time and subject_cell and str(subject_cell).strip():
+        # если в первой ячейке что-то похожее на новую дату / день — считаем, что блок закончен
+        first_cell = str(row[0]).strip() if len(row) > 0 and row[0] is not None else ""
+        if first_cell:
+            low = first_cell.lower()
+            # простая эвристика: если в ячейке есть число + слово месяц/день или название дня — новый блок
+            if any(d in low for d in ["январ", "феврал", "марта", "апрел", "мая", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"]) \
+               or any(d in low for d in ["понедельник","вторник","среда","четверг","пятница","суббота","воскресенье"]) \
+               or re.search(r'\d{1,2}\s*[\./]\s*\d{1,2}', low) \
+               or any(d in low for d in day_variants):
+                break  # встретили следующую дату/заголовок -> выходим
+    
+        # находим время в любой ячейке строки (иногда время может быть в 0-й, 1-й или даже 2-й)
+        time_str = ""
+        for cell in row[:3]:  # проверяем первые 3 колонки на время — обычно хватает
+            if cell is None:
+                continue
+            m = time_re.search(str(cell))
+            if m:
+                time_str = f"{m.group(1)}-{m.group(2)}"
+                break
+        
+        # как fallback — попробуем взять то, что у тебя было (вторая колонка)
+        if not time_str and len(row) > 1 and row[1]:
+            # возможна ситуация, где там уже строка типа "08:30-10:05" без дефиса-минуса стандартизированного
+            s = str(row[1]).strip()
+            if time_re.search(s):
+                m = time_re.search(s)
+                time_str = f"{m.group(1)}-{m.group(2)}"
+            else:
+                # если там просто что-то похожее на время — оставляем как есть
+                if re.search(r'\d{1,2}:\d{2}', s):
+                    time_str = s
+        
+        subject_cell = row[group_column] if len(row) > group_column else ""
+        if time_str and subject_cell and str(subject_cell).strip():
             # Обрабатываем многострочное содержимое - берем ВСЕ строки
             subject_text = str(subject_cell)
             subject_lines = []
@@ -184,8 +220,7 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
                     subject_lines.append(cleaned_line)
             
             if subject_lines:
-                lessons.append((str(time), subject_lines))
-        i += 1
+                lessons.append((str(time_str), subject_lines))
     
     return lessons
 
@@ -265,3 +300,4 @@ def format_schedule(lessons, is_even, date, group):
     
 
     return "\n".join(result)
+
