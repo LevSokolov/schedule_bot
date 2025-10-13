@@ -165,8 +165,9 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
     if found_index == -1:
         return []
     
-    # Собираем пары - ВАЖНОЕ ИСПРАВЛЕНИЕ: начинаем с самой строки с датой
+    # Собираем пары
     lessons = []
+    current_time = None  # Храним текущее время для объединенных ячеек
     
     # Проходим по всем строкам начиная со строки с датой
     i = found_index
@@ -177,8 +178,12 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
         time = row[1] if len(row) > 1 else ""
         subject_cell = row[group_column] if len(row) > group_column else ""
         
-        # Если в строке есть время и данные о паре - добавляем
-        if time and str(time).strip() and subject_cell and str(subject_cell).strip():
+        # Если есть время - обновляем current_time (даже если ячейка группы пустая)
+        if time and str(time).strip():
+            current_time = str(time).strip()
+        
+        # Если есть данные о паре - добавляем (используя current_time)
+        if current_time and subject_cell and str(subject_cell).strip():
             # Обрабатываем многострочное содержимое - берем ВСЕ строки
             subject_text = str(subject_cell)
             subject_lines = []
@@ -189,7 +194,9 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
                     subject_lines.append(cleaned_line)
             
             if subject_lines:
-                lessons.append((str(time), subject_lines))
+                # Проверяем, нет ли уже пары с таким временем (избегаем дублирования)
+                if not any(lesson[0] == current_time for lesson in lessons):
+                    lessons.append((current_time, subject_lines))
         
         # Переходим к следующей строке
         i += 1
