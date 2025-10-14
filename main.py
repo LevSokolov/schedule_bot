@@ -1,7 +1,7 @@
 import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from config import BOT_TOKEN
+from config import BOT_TOKEN, create_tables
 from handlers import router
 from aiohttp import web
 
@@ -9,6 +9,9 @@ async def handle(request):
     return web.Response(text="✅ Bot is alive!", content_type="text/plain")
 
 async def main():
+    # Создаем таблицы в базе данных
+    await create_tables()
+    
     bot = Bot(token=BOT_TOKEN)
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
@@ -33,4 +36,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
