@@ -1,16 +1,85 @@
 from aiogram import Router, F, Bot
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.enums import ParseMode
 
-from config import FACULTIES, GROUP_CHAT_ID, update_user_data, remove_user_data, get_user_data
+from config import FACULTIES, GROUP_CHAT_ID, update_user_data, remove_user_data, get_user_data, REQUIRED_CHANNEL
 from states import Registration
 from schedule_parser import get_day_schedule, get_available_groups
 import os
 
 router = Router()
 bot = Bot(token=os.getenv("BOT_TOKEN") or "8374624798:AAFNHcfxnWEz5hKHsAh5BAfr_mFB16nJ8qw")
+
+# Клавиатура для проверки подписки
+def get_subscription_keyboard():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📢 Подписаться на канал", url="https://t.me/smartschedule0")],
+            [InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription")]
+        ]
+    )
+
+# Проверка подписки на канал
+async def check_channel_subscription(user_id: int) -> bool:
+    try:
+        chat_member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
+        return chat_member.status in ['member', 'administrator', 'creator']
+    except Exception as e:
+        print(f"Ошибка проверки подписки: {e}")
+        return False
+
+# Мидлварь для проверки подписки
+@router.message()
+@router.callback_query()
+async def check_subscription_middleware(event, state: FSMContext):
+    # Пропускаем команду /start
+    if isinstance(event, Message) and event.text and event.text.startswith('/start'):
+        return True
+    
+    # Пропускаем колбэк проверки подписки
+    if isinstance(event, callback_query) and event.data == "check_subscription":
+        return True
+        
+    user_id = event.from_user.id
+    
+    # Проверяем подписку
+    if not await check_channel_subscription(user_id):
+        if isinstance(event, Message):
+            await event.answer(
+                "📢 *Для использования бота необходимо подписаться на наш канал!*\n\n"
+                "После подписки нажмите кнопку *\"✅ Я подписался\"*",
+                reply_markup=get_subscription_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        elif isinstance(event, callback_query):
+            await event.message.edit_text(
+                "📢 *Для использования бота необходимо подписаться на наш канал!*\n\n"
+                "После подписки нажмите кнопку *\"✅ Я подписался\"*",
+                reply_markup=get_subscription_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        return False
+    
+    return True
+
+# Обработчик проверки подписки
+@router.callback_query(F.data == "check_subscription")
+async def check_subscription_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    user_id = callback_query.from_user.id
+    
+    if await check_channel_subscription(user_id):
+        await callback_query.message.edit_text(
+            "✅ *Отлично! Теперь вы можете пользоваться ботом.*\n\n"
+            "Используйте команду /start для регистрации.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await callback_query.answer(
+            "❌ Вы еще не подписались на канал! Пожалуйста, подпишитесь и попробуйте снова.",
+            show_alert=True
+        )
 
 # Клавиатура для факультетов
 def get_faculties_keyboard():
@@ -57,6 +126,17 @@ def get_schedule_keyboard():
 # Старт регистрации
 @router.message(Command("start"))
 async def start_cmd(message: Message, state: FSMContext):
+    # Проверяем подписку
+    if not await check_channel_subscription(message.from_user.id):
+        await message.answer(
+            "📢 *Добро пожаловать!*\n\n"
+            "Для использования бота необходимо подписаться на наш канал с полезной информацией и обновлениями.\n\n"
+            "После подписки нажмите кнопку *\"✅ Я подписался\"*",
+            reply_markup=get_subscription_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
     # Удаляем старые данные пользователя при перезапуске
     user_id = message.from_user.id
     old_user_data = await get_user_data(user_id)
@@ -87,6 +167,16 @@ async def start_cmd(message: Message, state: FSMContext):
 # Выбор факультета
 @router.message(Registration.choosing_faculty, F.text.in_(FACULTIES.keys()))
 async def faculty_chosen(message: Message, state: FSMContext):
+    # Проверяем подписку
+    if not await check_channel_subscription(message.from_user.id):
+        await message.answer(
+            "❌ *Подписка на канал обязательна!*\n\n"
+            "Пожалуйста, подпишитесь на канал чтобы продолжить использование бота.",
+            reply_markup=get_subscription_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
     faculty = message.text
     await state.update_data(faculty=faculty)
     await message.answer(
@@ -106,6 +196,16 @@ async def wrong_faculty(message: Message):
 # Выбор курса
 @router.message(Registration.choosing_course, F.text.in_(["1", "2", "3", "4", "5"]))
 async def course_chosen(message: Message, state: FSMContext):
+    # Проверяем подписку
+    if not await check_channel_subscription(message.from_user.id):
+        await message.answer(
+            "❌ *Подписка на канал обязательна!*\n\n"
+            "Пожалуйста, подпишитесь на канал чтобы продолжить использование бота.",
+            reply_markup=get_subscription_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
     course = message.text
     data = await state.get_data()
     faculty = data['faculty']
@@ -156,6 +256,16 @@ async def wrong_course(message: Message):
 # Выбор группы
 @router.message(Registration.choosing_group)
 async def group_chosen(message: Message, state: FSMContext):
+    # Проверяем подписку
+    if not await check_channel_subscription(message.from_user.id):
+        await message.answer(
+            "❌ *Подписка на канал обязательна!*\n\n"
+            "Пожалуйста, подпишитесь на канал чтобы продолжить использование бота.",
+            reply_markup=get_subscription_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
     group = message.text
     data = await state.get_data()
     available_groups = data.get('available_groups', [])
@@ -211,6 +321,16 @@ async def group_chosen(message: Message, state: FSMContext):
 # Обработчик расписания для зарегистрированных пользователей
 @router.message(F.text.lower().in_({"сегодня", "завтра", "пн", "вт", "ср", "чт", "пт", "сб"}))
 async def day_selected(message: Message):
+    # Проверяем подписку
+    if not await check_channel_subscription(message.from_user.id):
+        await message.answer(
+            "❌ *Подписка на канал обязательна!*\n\n"
+            "Пожалуйста, подпишитесь на канал чтобы продолжить использование бота.",
+            reply_markup=get_subscription_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
     user_id = message.from_user.id
     user_info = await get_user_data(user_id)
     
@@ -236,6 +356,16 @@ async def day_selected(message: Message):
 # Команда для сброса регистрации
 @router.message(Command("reset"))
 async def reset_cmd(message: Message, state: FSMContext):
+    # Проверяем подписку
+    if not await check_channel_subscription(message.from_user.id):
+        await message.answer(
+            "❌ *Подписка на канал обязательна!*\n\n"
+            "Пожалуйста, подпишитесь на канал чтобы продолжить использование бота.",
+            reply_markup=get_subscription_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
     user_id = message.from_user.id
     if await remove_user_data(user_id):
         await message.answer(
@@ -252,6 +382,16 @@ async def reset_cmd(message: Message, state: FSMContext):
 # Команда для просмотра своей текущей регистрации
 @router.message(Command("me"))
 async def me_cmd(message: Message):
+    # Проверяем подписку
+    if not await check_channel_subscription(message.from_user.id):
+        await message.answer(
+            "❌ *Подписка на канал обязательна!*\n\n"
+            "Пожалуйста, подпишитесь на канал чтобы продолжить использование бота.",
+            reply_markup=get_subscription_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
     user_id = message.from_user.id
     user_info = await get_user_data(user_id)
     
