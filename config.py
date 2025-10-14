@@ -1,27 +1,29 @@
 import os
-import asyncpg
+import json
 from datetime import timezone, timedelta
-from pathlib import Path
+from dotenv import load_dotenv
 
-BASE_DIR = Path(__file__).resolve().parent / "sheets"
+# Загружаем переменные из .env
+load_dotenv()
 
-# ===== Настройки токена =====
+# Безопасно берём токен из окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN не найден! Добавь его в настройки Render → Environment Variables")
+    raise ValueError("❌ BOT_TOKEN не найден! Укажи его в .env")
 
-# ===== Временная зона =====
+# Временная зона
 TZ = timezone(timedelta(hours=5))  # Екатеринбург UTC+5
 
-# ===== База данных =====
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise ValueError("❌ DATABASE_URL не найден! Добавь переменную окружения в Render")
+# Базовая директория с расписаниями
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# ===== ID группы =====
+# ID группы для уведомлений (можно тоже хранить в .env)
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4940561857"))
 
-# ===== Факультеты =====
+# Файл для хранения данных пользователей
+USERS_DATA_FILE = os.path.join(BASE_DIR, 'users_data.json')
+
+# Структура факультетов
 FACULTIES = {
     "Механический факультет": "МФ",
     "Строительный факультет": "СФ",
@@ -32,46 +34,48 @@ FACULTIES = {
     "ДиА": "ДиА"
 }
 
-# ===== Работа с БД =====
-async def create_db_pool():
-    """Создает пул соединений с PostgreSQL"""
-    return await asyncpg.create_pool(DATABASE_URL)
 
-async def init_db(pool):
-    """Создает таблицу, если её нет"""
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id BIGINT PRIMARY KEY,
-                full_name TEXT,
-                username TEXT,
-                faculty TEXT,
-                course INTEGER,
-                user_group TEXT
-            );
-        """)
-
-async def add_or_update_user(pool, user_id, full_name, username, faculty, course, group):
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO users (user_id, full_name, username, faculty, course, user_group)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (user_id) DO UPDATE
-            SET full_name=$2, username=$3, faculty=$4, course=$5, user_group=$6;
-        """, user_id, full_name, username, faculty, course, group)
-
-async def get_user(pool, user_id):
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", user_id)
-        return dict(row) if row else None
-
-async def remove_user(pool, user_id):
-    async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM users WHERE user_id = $1", user_id)
-
-async def get_all_users(pool):
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM users")
-        return [dict(r) for r in rows]
+# ===== Функции работы с данными пользователей =====
+def load_users_data():
+    """Загружает данные пользователей из файла"""
+    if os.path.exists(USERS_DATA_FILE):
+        try:
+            with open(USERS_DATA_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Ошибка загрузки данных пользователей: {e}")
+            return {}
+    return {}
 
 
+def save_users_data(data):
+    """Сохраняет данные пользователей в файл"""
+    try:
+        with open(USERS_DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Ошибка сохранения данных пользователей: {e}")
+
+
+def update_user_data(user_id, user_info):
+    """Обновляет данные пользователя"""
+    users_data = load_users_data()
+    users_data[str(user_id)] = user_info
+    save_users_data(users_data)
+
+
+def remove_user_data(user_id):
+    """Удаляет данные пользователя"""
+    users_data = load_users_data()
+    user_id_str = str(user_id)
+    if user_id_str in users_data:
+        del users_data[user_id_str]
+        save_users_data(users_data)
+        return True
+    return False
+
+
+def get_user_data(user_id):
+    """Получает данные пользователя"""
+    users_data = load_users_data()
+    return users_data.get(str(user_id))
