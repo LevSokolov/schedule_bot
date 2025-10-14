@@ -4,3 +4,4 @@ xlrd
 openpyxl
 python-dotenv
 asyncpg
+aiohttp
