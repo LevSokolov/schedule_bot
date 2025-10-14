@@ -59,7 +59,7 @@ def get_schedule_keyboard():
 async def start_cmd(message: Message, state: FSMContext):
     # Удаляем старые данные пользователя при перезапуске
     user_id = message.from_user.id
-    old_user_data = get_user_data(user_id)
+    old_user_data = await get_user_data(user_id)
     
     if old_user_data:
         # Отправляем уведомление об удалении старой записи
@@ -76,7 +76,7 @@ async def start_cmd(message: Message, state: FSMContext):
         except Exception as e:
             print(f"Не удалось отправить сообщение об удалении: {e}")
         
-        remove_user_data(user_id)
+        await remove_user_data(user_id)
     
     await message.answer(
         "Добро пожаловать! Выберите ваш факультет:",
@@ -166,7 +166,7 @@ async def group_chosen(message: Message, state: FSMContext):
         )
         return
     
-    # Сохраняем выбор пользователя в файл
+    # Сохраняем выбор пользователя в базу данных
     user_id = message.from_user.id
     user_info = {
         'faculty': data['faculty'],
@@ -176,7 +176,7 @@ async def group_chosen(message: Message, state: FSMContext):
         'full_name': message.from_user.full_name or "Неизвестно"
     }
     
-    update_user_data(user_id, user_info)
+    await update_user_data(user_id, user_info)
     
     # Отправляем уведомление в группу
     admin_message = (
@@ -212,7 +212,7 @@ async def group_chosen(message: Message, state: FSMContext):
 @router.message(F.text.lower().in_({"сегодня", "завтра", "пн", "вт", "ср", "чт", "пт", "сб"}))
 async def day_selected(message: Message):
     user_id = message.from_user.id
-    user_info = get_user_data(user_id)
+    user_info = await get_user_data(user_id)
     
     if not user_info:
         await message.answer(
@@ -237,7 +237,7 @@ async def day_selected(message: Message):
 @router.message(Command("reset"))
 async def reset_cmd(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    if remove_user_data(user_id):
+    if await remove_user_data(user_id):
         await message.answer(
             "Регистрация сброшена. Используйте /start для новой регистрации.",
             reply_markup=ReplyKeyboardRemove()
@@ -253,7 +253,7 @@ async def reset_cmd(message: Message, state: FSMContext):
 @router.message(Command("me"))
 async def me_cmd(message: Message):
     user_id = message.from_user.id
-    user_info = get_user_data(user_id)
+    user_info = await get_user_data(user_id)
     
     if user_info:
         response = (
