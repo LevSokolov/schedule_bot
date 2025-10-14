@@ -1,4 +1,3 @@
-main.py
 import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -34,3 +33,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
