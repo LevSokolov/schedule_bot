@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from config import FACULTIES, TZ, BASE_DIR
 import openpyxl
 import xlrd
@@ -33,15 +33,20 @@ def escape_markdown(text: str) -> str:
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
 
-def is_even_week(date: datetime) -> bool:
+def is_even_week(target_date: datetime) -> bool:
     """Определяет четность недели (учебный семестр обычно начинается с нечетной)"""
+    # Преобразуем в наивный datetime для вычислений
+    if target_date.tzinfo is not None:
+        naive_date = target_date.replace(tzinfo=None)
+    else:
+        naive_date = target_date
+    
     # Учебный год обычно начинается с нечетной недели в сентябре
-    # Вычисляем номер недели от начала учебного года
-    if date.month >= 9:  # С сентября по декабрь
-        start_year = date.year
+    if naive_date.month >= 9:  # С сентября по декабрь
+        start_year = naive_date.year
         start_date = datetime(start_year, 9, 1)
     else:  # С января по август
-        start_year = date.year - 1
+        start_year = naive_date.year - 1
         start_date = datetime(start_year, 9, 1)
     
     # Находим первый понедельник сентября
@@ -49,7 +54,7 @@ def is_even_week(date: datetime) -> bool:
         start_date += timedelta(days=1)
     
     # Вычисляем разницу в неделях
-    delta = date - start_date
+    delta = naive_date - start_date
     weeks_passed = delta.days // 7
     
     # Нечетная неделя = нечетное количество прошедших недель
@@ -166,10 +171,16 @@ def find_group_column(schedule_data: list, group_name: str) -> int:
     print(f"❌ Столбец для группы {group_name} не найден")
     return -1
 
-def find_schedule_for_group(schedule_data: list, group_column: int, date: datetime):
+def find_schedule_for_group(schedule_data: list, group_column: int, target_date: datetime):
     """Находит расписание для группы на указанную дату"""
     if not schedule_data or group_column < 0:
         return []
+    
+    # Преобразуем в наивный datetime для поиска
+    if target_date.tzinfo is not None:
+        search_date = target_date.replace(tzinfo=None)
+    else:
+        search_date = target_date
     
     day_rus = {
         "monday": "понедельник",
@@ -179,18 +190,18 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
         "friday": "пятница",
         "saturday": "суббота",
         "sunday": "воскресенье"
-    }[date.strftime("%A").lower()]
+    }[search_date.strftime("%A").lower()]
     
     day_variants = [
-        str(date.day),
-        f"{date.day}.{date.month}",
-        f"{date.day}/{date.month}",
-        date.strftime("%d.%m"),
-        date.strftime("%d/%m"),
+        str(search_date.day),
+        f"{search_date.day}.{search_date.month}",
+        f"{search_date.day}/{search_date.month}",
+        search_date.strftime("%d.%m"),
+        search_date.strftime("%d/%m"),
         day_rus
     ]
     
-    print(f"🔍 Ищем расписание на дату: {date.strftime('%d.%m.%Y')}")
+    print(f"🔍 Ищем расписание на дату: {search_date.strftime('%d.%m.%Y')}")
     print(f"🔍 Варианты поиска: {day_variants}")
     
     # Ищем строку с нужной датой
@@ -204,7 +215,7 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
                 break
     
     if found_index == -1:
-        print(f"❌ Дата {date.strftime('%d.%m.%Y')} не найдена в расписании")
+        print(f"❌ Дата {search_date.strftime('%d.%m.%Y')} не найдена в расписании")
         return []
     
     # Собираем пары
@@ -247,7 +258,7 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
             if any(d in next_cell for d in day_variants) or any(day in next_cell for day in DAY_MAP.keys()):
                 break
     
-    print(f"✅ Найдено {len(lessons)} пар для даты {date.strftime('%d.%m.%Y')}")
+    print(f"✅ Найдено {len(lessons)} пар для даты {search_date.strftime('%d.%m.%Y')}")
     return lessons
 
 def get_day_schedule(faculty: str, course: int, group: str, command: str):
@@ -307,11 +318,17 @@ def get_day_schedule(faculty: str, course: int, group: str, command: str):
 
 def format_schedule(lessons, is_even, date, group):
     """Форматирует расписание в красивый текст"""
+    # Преобразуем в наивный datetime для форматирования
+    if date.tzinfo is not None:
+        format_date = date.replace(tzinfo=None)
+    else:
+        format_date = date
+        
     week_str = "Четная" if is_even else "Нечетная"
-    day_short = RUS_DAYS_SHORT[date.weekday()]
-    month_rus = RUS_MONTHS[date.month]
+    day_short = RUS_DAYS_SHORT[format_date.weekday()]
+    month_rus = RUS_MONTHS[format_date.month]
     month_rus = month_rus[0].upper() + month_rus[1:]
-    date_str = f"{day_short} {date.day} {month_rus}"
+    date_str = f"{day_short} {format_date.day} {month_rus}"
     
     # Экранируем все данные
     escaped_week = escape_markdown(week_str)
@@ -335,7 +352,7 @@ def format_schedule(lessons, is_even, date, group):
             
             for line in subject_lines:
                 escaped_line = escape_markdown(line)
-                result.append(f"\\- {escored_line}")
+                result.append(f"\\- {escaped_line}")
             result.append("")
 
     return "\n".join(result)
