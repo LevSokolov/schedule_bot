@@ -1,8 +1,10 @@
 import asyncio
+import os
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from config import BOT_TOKEN
+
+from config import BOT_TOKEN, create_db_pool, init_db
 from handlers import router
 
 async def handle(request):
@@ -13,14 +15,20 @@ async def run_web():
     app.router.add_get("/", handle)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 10000)
+    port = int(os.getenv("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print("🌐 Web server запущен на порту 10000")
+    print(f"🌐 Web server запущен на порту {port}")
 
 async def run_bot():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
+
+    pool = await create_db_pool()
+    await init_db(pool)
+
+    print("🤖 Бот запущен и готов к приёму апдейтов")
     await dp.start_polling(bot)
 
 async def main():
