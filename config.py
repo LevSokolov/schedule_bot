@@ -1,5 +1,5 @@
 import os
-import json
+import asyncpg
 from datetime import timezone, timedelta
 from dotenv import load_dotenv
 
@@ -11,6 +11,11 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден! Укажи его в .env")
 
+# URL базы данных
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("❌ DATABASE_URL не найден! Укажи его в .env")
+
 # Временная зона
 TZ = timezone(timedelta(hours=5))  # Екатеринбург UTC+5
 
@@ -19,9 +24,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ID группы для уведомлений (можно тоже хранить в .env)
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4940561857"))
-
-# Файл для хранения данных пользователей
-USERS_DATA_FILE = os.path.join(BASE_DIR, 'users_data.json')
 
 # Структура факультетов
 FACULTIES = {
@@ -34,48 +36,81 @@ FACULTIES = {
     "ДиА": "ДиА"
 }
 
-
-# ===== Функции работы с данными пользователей =====
-def load_users_data():
-    """Загружает данные пользователей из файла"""
-    if os.path.exists(USERS_DATA_FILE):
-        try:
-            with open(USERS_DATA_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Ошибка загрузки данных пользователей: {e}")
-            return {}
-    return {}
-
-
-def save_users_data(data):
-    """Сохраняет данные пользователей в файл"""
+# ===== Функции работы с базой данных =====
+async def create_tables():
+    """Создает таблицы в базе данных если они не существуют"""
+    conn = await asyncpg.connect(DATABASE_URL)
     try:
-        with open(USERS_DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id BIGINT PRIMARY KEY,
+                faculty TEXT NOT NULL,
+                course TEXT NOT NULL,
+                group_name TEXT NOT NULL,
+                username TEXT,
+                full_name TEXT NOT NULL,
+                registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        print("✅ Таблицы в базе данных созданы/проверены")
     except Exception as e:
-        print(f"Ошибка сохранения данных пользователей: {e}")
+        print(f"❌ Ошибка создания таблиц: {e}")
+    finally:
+        await conn.close()
 
+async def update_user_data(user_id, user_info):
+    """Обновляет или создает данные пользователя"""
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        await conn.execute('''
+            INSERT INTO users (user_id, faculty, course, group_name, username, full_name)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (user_id) 
+            DO UPDATE SET 
+                faculty = $2,
+                course = $3,
+                group_name = $4,
+                username = $5,
+                full_name = $6,
+                registered_at = CURRENT_TIMESTAMP
+        ''', user_id, user_info['faculty'], user_info['course'], 
+            user_info['group'], user_info['username'], user_info['full_name'])
+    except Exception as e:
+        print(f"❌ Ошибка обновления данных пользователя: {e}")
+    finally:
+        await conn.close()
 
-def update_user_data(user_id, user_info):
-    """Обновляет данные пользователя"""
-    users_data = load_users_data()
-    users_data[str(user_id)] = user_info
-    save_users_data(users_data)
-
-
-def remove_user_data(user_id):
+async def remove_user_data(user_id):
     """Удаляет данные пользователя"""
-    users_data = load_users_data()
-    user_id_str = str(user_id)
-    if user_id_str in users_data:
-        del users_data[user_id_str]
-        save_users_data(users_data)
-        return True
-    return False
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        result = await conn.execute('DELETE FROM users WHERE user_id = $1', user_id)
+        return "DELETE 1" in result
+    except Exception as e:
+        print(f"❌ Ошибка удаления пользователя: {e}")
+        return False
+    finally:
+        await conn.close()
 
-
-def get_user_data(user_id):
+async def get_user_data(user_id):
     """Получает данные пользователя"""
-    users_data = load_users_data()
-    return users_data.get(str(user_id))
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        row = await conn.fetchrow(
+            'SELECT faculty, course, group_name, username, full_name FROM users WHERE user_id = $1', 
+            user_id
+        )
+        if row:
+            return {
+                'faculty': row['faculty'],
+                'course': row['course'],
+                'group': row['group_name'],
+                'username': row['username'],
+                'full_name': row['full_name']
+            }
+        return None
+    except Exception as e:
+        print(f"❌ Ошибка получения данных пользователя: {e}")
+        return None
+    finally:
+        await conn.close()
