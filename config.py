@@ -1,6 +1,9 @@
 import os
 import asyncpg
 from datetime import timezone, timedelta
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent / "schedules"
 
 # ===== Настройки токена =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -70,3 +73,4 @@ async def get_all_users(pool):
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT * FROM users")
         return [dict(r) for r in rows]
+
