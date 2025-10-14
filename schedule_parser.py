@@ -34,7 +34,26 @@ def escape_markdown(text: str) -> str:
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
 
 def is_even_week(date: datetime) -> bool:
-    return date.isocalendar().week % 2 != 0
+    """Определяет четность недели (учебный семестр обычно начинается с нечетной)"""
+    # Учебный год обычно начинается с нечетной недели в сентябре
+    # Вычисляем номер недели от начала учебного года
+    if date.month >= 9:  # С сентября по декабрь
+        start_year = date.year
+        start_date = datetime(start_year, 9, 1)
+    else:  # С января по август
+        start_year = date.year - 1
+        start_date = datetime(start_year, 9, 1)
+    
+    # Находим первый понедельник сентября
+    while start_date.weekday() != 0:  # 0 = понедельник
+        start_date += timedelta(days=1)
+    
+    # Вычисляем разницу в неделях
+    delta = date - start_date
+    weeks_passed = delta.days // 7
+    
+    # Нечетная неделя = нечетное количество прошедших недель
+    return weeks_passed % 2 == 1
 
 def get_schedule_file_path(faculty: str, course: int, is_even: bool) -> str:
     """Получает путь к файлу расписания"""
@@ -44,21 +63,31 @@ def get_schedule_file_path(faculty: str, course: int, is_even: bool) -> str:
     # Формируем базовый путь
     base_path = os.path.join(BASE_DIR, week_folder, faculty)
     
+    print(f"🔍 Ищем файл расписания по пути: {base_path}")
+    print(f"📁 Факультет: {faculty}, курс: {course}, неделя: {'четная' if is_even else 'нечетная'}")
+    
     if not os.path.exists(base_path):
+        print(f"❌ Путь не существует: {base_path}")
         return None
     
     # Ищем подходящий файл
+    files_found = []
     for file in os.listdir(base_path):
         if file.endswith(('.xls', '.xlsx')):
+            files_found.append(file)
             # Проверяем, что файл подходит по курсу
             if f"{course} курс" in file:
-                return os.path.join(base_path, file)
+                file_path = os.path.join(base_path, file)
+                print(f"✅ Найден подходящий файл: {file_path}")
+                return file_path
     
+    print(f"❌ Файл для курса {course} не найден. Найдены файлы: {files_found}")
     return None
 
 def load_schedule(file_path: str):
     """Загружает данные из файла расписания"""
     if not file_path or not os.path.exists(file_path):
+        print(f"❌ Файл не существует: {file_path}")
         return None
         
     ext = os.path.splitext(file_path)[1].lower()
@@ -75,14 +104,17 @@ def load_schedule(file_path: str):
             sheet = wb.sheet_by_index(0)
             for r in range(sheet.nrows):
                 data.append([sheet.cell_value(r, c) if sheet.cell_value(r, c) else "" for c in range(sheet.ncols)])
+        print(f"✅ Успешно загружено {len(data)} строк из файла")
     except Exception as e:
-        print(f"Ошибка загрузки файла {file_path}: {e}")
+        print(f"❌ Ошибка загрузки файла {file_path}: {e}")
         return None
         
     return data
 
 def get_available_groups(faculty: str, course: int) -> list:
     """Получает список доступных групп для факультета и курса"""
+    print(f"🔍 Получаем доступные группы для {faculty}, курс {course}")
+    
     # Пробуем сначала нечетную неделю, потом четную
     for is_even in [False, True]:
         file_path = get_schedule_file_path(faculty, course, is_even)
@@ -94,7 +126,7 @@ def get_available_groups(faculty: str, course: int) -> list:
             continue
             
         # Ищем строку с заголовками групп (где есть "День" и "Часы")
-        for row in schedule_data:
+        for row_idx, row in enumerate(schedule_data):
             if len(row) > 2:
                 first_cell = str(row[0]).lower() if row[0] else ""
                 second_cell = str(row[1]).lower() if row[1] else ""
@@ -102,12 +134,14 @@ def get_available_groups(faculty: str, course: int) -> list:
                 if "день" in first_cell and "часы" in second_cell:
                     # Нашли заголовок, собираем группы
                     groups = []
-                    for cell in row[2:]:  # Начиная с третьего столбца
+                    for col_idx, cell in enumerate(row[2:], start=2):
                         cell_str = str(cell).strip()
                         if cell_str and cell_str not in ["День", "Часы"] and not cell_str.isspace():
                             groups.append(cell_str)
+                    print(f"✅ Найдены группы: {groups}")
                     return groups if groups else []
     
+    print("❌ Группы не найдены ни в одном файле расписания")
     return []
 
 def find_group_column(schedule_data: list, group_name: str) -> int:
@@ -123,11 +157,13 @@ def find_group_column(schedule_data: list, group_name: str) -> int:
             
             if "день" in first_cell and "часы" in second_cell:
                 # Нашли заголовок, ищем нашу группу
-                for col_idx, cell in enumerate(row[2:], start=2):  # Начиная с 3 столбца
+                for col_idx, cell in enumerate(row[2:], start=2):
                     if str(cell).strip() == group_name:
+                        print(f"✅ Найден столбец для группы {group_name}: {col_idx}")
                         return col_idx
                 break
                 
+    print(f"❌ Столбец для группы {group_name} не найден")
     return -1
 
 def find_schedule_for_group(schedule_data: list, group_column: int, date: datetime):
@@ -150,24 +186,30 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
         f"{date.day}.{date.month}",
         f"{date.day}/{date.month}",
         date.strftime("%d.%m"),
-        date.strftime("%d/%m")
+        date.strftime("%d/%m"),
+        day_rus
     ]
+    
+    print(f"🔍 Ищем расписание на дату: {date.strftime('%d.%m.%Y')}")
+    print(f"🔍 Варианты поиска: {day_variants}")
     
     # Ищем строку с нужной датой
     found_index = -1
     for i, row in enumerate(schedule_data):
         if row and row[0]:
             cell = str(row[0]).lower()
-            if any(d in cell for d in day_variants) or day_rus in cell:
+            if any(d in cell for d in day_variants):
                 found_index = i
+                print(f"✅ Найдена строка с датой: строка {i}, содержимое: '{row[0]}'")
                 break
     
     if found_index == -1:
+        print(f"❌ Дата {date.strftime('%d.%m.%Y')} не найдена в расписании")
         return []
     
     # Собираем пары
     lessons = []
-    current_time = None  # Храним текущее время для объединенных ячеек
+    current_time = None
     
     # Проходим по всем строкам начиная со строки с датой
     i = found_index
@@ -178,14 +220,12 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
         time = row[1] if len(row) > 1 else ""
         subject_cell = row[group_column] if len(row) > group_column else ""
         
-        # Если есть время - обновляем current_time (даже если ячейка группы пустая)
+        # Если есть время - обновляем current_time
         if time and str(time).strip():
             current_time = str(time).strip()
         
-        # Если есть данные о паре - добавляем (используя current_time)
-        # ВАЖНОЕ ИЗМЕНЕНИЕ: убираем проверку на дублирование времени, чтобы разрешить несколько пар в одно время
+        # Если есть данные о паре - добавляем
         if current_time and subject_cell and str(subject_cell).strip():
-            # Обрабатываем многострочное содержимое - берем ВСЕ строки
             subject_text = str(subject_cell)
             subject_lines = []
             
@@ -195,8 +235,8 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
                     subject_lines.append(cleaned_line)
             
             if subject_lines:
-                # УБИРАЕМ ПРОВЕРКУ НА ДУБЛИРОВАНИЕ ВРЕМЕНИ - разрешаем несколько пар в одно время
                 lessons.append((current_time, subject_lines))
+                print(f"✅ Добавлена пара: {current_time} - {subject_lines}")
         
         # Переходим к следующей строке
         i += 1
@@ -207,11 +247,13 @@ def find_schedule_for_group(schedule_data: list, group_column: int, date: dateti
             if any(d in next_cell for d in day_variants) or any(day in next_cell for day in DAY_MAP.keys()):
                 break
     
+    print(f"✅ Найдено {len(lessons)} пар для даты {date.strftime('%d.%m.%Y')}")
     return lessons
 
 def get_day_schedule(faculty: str, course: int, group: str, command: str):
     """Основная функция для получения расписания"""
     now = datetime.now(TZ)
+    print(f"🎯 Запрос расписания: {faculty}, курс {course}, группа {group}, команда '{command}'")
     
     # Определяем смещение дней
     if command == "сегодня":
@@ -228,20 +270,34 @@ def get_day_schedule(faculty: str, course: int, group: str, command: str):
     target_date = now + timedelta(days=shift)
     is_even = is_even_week(target_date)
     
+    print(f"📅 Целевая дата: {target_date.strftime('%d.%m.%Y')}")
+    print(f"📊 Определена неделя: {'четная' if is_even else 'нечетная'}")
+    
     # Получаем файл расписания
     file_path = get_schedule_file_path(faculty, course, is_even)
     if not file_path:
-        return "❌ Файл расписания не найден"
+        # Пробуем противоположную неделю
+        is_even = not is_even
+        print(f"🔄 Пробуем противоположную неделю: {'четная' if is_even else 'нечетная'}")
+        file_path = get_schedule_file_path(faculty, course, is_even)
+        if not file_path:
+            error_msg = "❌ Файл расписания не найден"
+            print(error_msg)
+            return error_msg
     
     # Загружаем данные
     schedule_data = load_schedule(file_path)
     if not schedule_data:
-        return "❌ Не удалось загрузить расписание"
+        error_msg = "❌ Не удалось загрузить расписание"
+        print(error_msg)
+        return error_msg
     
     # Находим столбец группы
     group_column = find_group_column(schedule_data, group)
     if group_column == -1:
-        return f"❌ Группа {group} не найдена в расписании"
+        error_msg = f"❌ Группа {group} не найдена в расписании"
+        print(error_msg)
+        return error_msg
     
     # Получаем расписание
     lessons = find_schedule_for_group(schedule_data, group_column, target_date)
@@ -254,7 +310,6 @@ def format_schedule(lessons, is_even, date, group):
     week_str = "Четная" if is_even else "Нечетная"
     day_short = RUS_DAYS_SHORT[date.weekday()]
     month_rus = RUS_MONTHS[date.month]
-    # Делаем первую букву месяца заглавной
     month_rus = month_rus[0].upper() + month_rus[1:]
     date_str = f"{day_short} {date.day} {month_rus}"
     
@@ -280,8 +335,7 @@ def format_schedule(lessons, is_even, date, group):
             
             for line in subject_lines:
                 escaped_line = escape_markdown(line)
-                result.append(f"\\- {escaped_line}")
+                result.append(f"\\- {escored_line}")
             result.append("")
-    
 
     return "\n".join(result)
