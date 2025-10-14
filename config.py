@@ -25,6 +25,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ID группы для уведомлений (можно тоже хранить в .env)
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4940561857"))
 
+# Канал для обязательной подписки
+REQUIRED_CHANNEL = "@smartschedule0"
+
 # Структура факультетов
 FACULTIES = {
     "Механический факультет": "МФ",
