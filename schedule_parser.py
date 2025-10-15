@@ -233,24 +233,35 @@ def find_schedule_for_date(schedule_data: list, group_column: int, target_date: 
         i += 1
     
     print(f"❌ Дата {search_date.strftime('%d.%m.%Y')} не найдена в расписании")
-    return []
+    return None
 
 def get_day_schedule(faculty: str, course: int, group: str, command: str):
     """Основная функция для получения расписания"""
     now = datetime.now(TZ)
-    
+    target_date = now
+
     # Определяем целевую дату
     if command == "сегодня":
         target_date = now
     elif command == "завтра":
         target_date = now + timedelta(days=1)
     else:
+        # ===== ИЗМЕНЕННАЯ ЛОГИКА =====
         days_map = {"пн": 0, "вт": 1, "ср": 2, "чт": 3, "пт": 4, "сб": 5}
-        today = now.weekday()
-        shift = (days_map.get(command, 0) - today) % 7
-        if shift <= 0:
-            shift += 7
-        target_date = now + timedelta(days=shift)
+        today_weekday = now.weekday()  # Сегодняшний день недели (0=Пн, 6=Вс)
+        target_weekday = days_map.get(command)
+
+        if target_weekday is not None:
+            # Рассчитываем разницу в днях
+            shift = target_weekday - today_weekday
+            
+            # Если день уже прошел на этой неделе (отрицательный сдвиг),
+            # то ищем его на следующей неделе.
+            if shift < 0:
+                shift += 7
+            
+            target_date = now + timedelta(days=shift)
+        # ===============================
     
     print(f"🎯 Ищем расписание на: {target_date.strftime('%d.%m.%Y')}")
     
@@ -272,11 +283,14 @@ def get_day_schedule(faculty: str, course: int, group: str, command: str):
         
         lessons = find_schedule_for_date(schedule_data, group_column, target_date)
         
-        if lessons:
-            print(f"✅ Найдено расписание в {'четной' if is_even else 'нечетной'} неделе")
+        # Проверяем, что функция вернула не None (т.е. дата в файле была найдена)
+        if lessons is not None:
+            print(f"✅ Найдена дата в {'четной' if is_even else 'нечетной'} неделе. Пар: {len(lessons)}")
+            # Теперь format_schedule будет вызвана даже с пустым списком пар
             return format_schedule(lessons, is_even, target_date, group)
         else:
-            print(f"❌ В {'четной' if is_even else 'нечетной'} неделе расписание не найдено")
+            # Если lessons is None, значит дата в файле не найдена, и мы просто ищем в следующем файле
+            print(f"❌ В файле {'четной' if is_even else 'нечетной'} недели дата не найдена")
     
     return "❌ Расписание на выбранную дату не найдено"
 
@@ -333,3 +347,4 @@ def format_schedule(lessons, is_even, date, group):
             result.append("")
 
     return "\n".join(result)
+
