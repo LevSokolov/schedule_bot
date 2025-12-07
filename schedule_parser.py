@@ -1,46 +1,43 @@
-import os
+import io
+import re
+import time
 from datetime import datetime, timedelta
-from config import FACULTIES, TZ, BASE_DIR
+
+import aiohttp
 import openpyxl
 import xlrd
-import re
 
-BASE_DIR = os.path.join(os.path.dirname(__file__), "sheets")
+from config import SCHEDULE_URLS, TZ, FACULTIES
 
-DAY_MAP = {
-    "понедельник": 0, "вторник": 1, "среда": 2, "четверг": 3, 
-    "пятница": 4, "суббота": 5, "воскресенье": 6
-}
+# ===== ПЕРЕМЕННЫЕ ДЛЯ КЭШИРОВАНИЯ =====
+SCHEDULE_CACHE = {} 
+CACHE_DURATION_SECONDS = 3600  # 1 час
 
+# --- Константы ---
 RUS_DAYS_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 RUS_MONTHS = {
-    1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-    5: "мая", 6: "июня", 7: "июля", 8: "августа",
-    9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+    1: "января", 2: "февраля", 3: "марта", 4: "апреля", 5: "мая", 6: "июня", 
+    7: "июля", 8: "августа", 9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
 }
 RUS_MONTHS_REVERSE = {v: k for k, v in RUS_MONTHS.items()}
 
+
 def escape_markdown(text: str) -> str:
-    """Экранирование специальных символов для MarkdownV2"""
+    """Экранирует специальные символы для MarkdownV2."""
     if not text:
         return ""
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
 
+
 def parse_russian_date(date_str: str):
-    """Парсит русскую дату из строки"""
+    """Парсит дату из строки формата '8 декабря'."""
     if not date_str:
         return None
-    
     date_str = str(date_str).lower().strip()
-    
-    # Паттерны для поиска даты
     patterns = [
-        r'(\d{1,2})\s+(\w+)\s+(\w+)',  # "20 октября понедельник"
-        r'(\d{1,2})\s+(\w+)',           # "20 октября"
-        r'"(\d{1,2})\s+(\w+)\s+(\w+)"', # в кавычках
+        r'(\d{1,2})\s+(\w+)\s+(\w+)', r'(\d{1,2})\s+(\w+)', r'"(\d{1,2})\s+(\w+)\s+(\w+)"'
     ]
-    
     for pattern in patterns:
         match = re.search(pattern, date_str)
         if match:
@@ -49,302 +46,288 @@ def parse_russian_date(date_str: str):
                 try:
                     day = int(groups[0])
                     month_str = groups[1].strip()
-                    
-                    # Определяем месяц
-                    month = None
-                    for rus_month, num in RUS_MONTHS_REVERSE.items():
-                        if rus_month in month_str:
-                            month = num
-                            break
-                    
+                    month = next((num for rus_month, num in RUS_MONTHS_REVERSE.items() if rus_month in month_str), None)
                     if month:
-                        # Берем текущий год или следующий, если месяц уже прошел
                         now = datetime.now(TZ)
                         year = now.year
                         if month < now.month or (month == now.month and day < now.day):
-                            year = now.year + 1
-                        
+                            year += 1
                         return datetime(year, month, day)
                 except (ValueError, IndexError):
                     continue
     return None
 
-def get_schedule_file_path(faculty: str, course: int, is_even: bool) -> str:
-    """Получает путь к файлу расписания"""
-    week_folder = "Четная неделя" if is_even else "Нечетная неделя"
-    base_path = os.path.join(BASE_DIR, week_folder, faculty)
-    
-    if not os.path.exists(base_path):
-        return None
-    
-    for file in os.listdir(base_path):
-        if file.endswith(('.xls', '.xlsx')):
-            if f"{course} курс" in file:
-                return os.path.join(base_path, file)
-    
-    return None
 
-def load_schedule(file_path: str):
-    """Загружает данные из файла расписания"""
-    if not file_path or not os.path.exists(file_path):
-        return None
-        
-    ext = os.path.splitext(file_path)[1].lower()
-    data = []
-
+async def _load_and_parse_xls(url: str):
+    """Скачивает и парсит XLS/XLSX файл."""
     try:
-        if ext == ".xlsx":
-            wb = openpyxl.load_workbook(file_path)
-            sheet = wb.active
-            for row in sheet.iter_rows(values_only=True):
-                data.append([cell if cell is not None else "" for cell in row])
-        elif ext == ".xls":
-            wb = xlrd.open_workbook(file_path)
-            sheet = wb.sheet_by_index(0)
-            for r in range(sheet.nrows):
-                data.append([sheet.cell_value(r, c) if sheet.cell_value(r, c) else "" for c in range(sheet.ncols)])
-    except Exception as e:
-        print(f"Ошибка загрузки файла {file_path}: {e}")
-        return None
-        
-    return data
-
-def get_available_groups(faculty: str, course: int) -> list:
-    """Получает список доступных групп для факультета и курса"""
-    for is_even in [False, True]:
-        file_path = get_schedule_file_path(faculty, course, is_even)
-        if not file_path:
-            continue
-            
-        schedule_data = load_schedule(file_path)
-        if not schedule_data:
-            continue
-            
-        for row in schedule_data:
-            if len(row) > 2:
-                first_cell = str(row[0]).lower() if row[0] else ""
-                second_cell = str(row[1]).lower() if row[1] else ""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    print(f"❌ Ошибка загрузки {url}: статус {response.status}")
+                    return None
                 
-                if "день" in first_cell and "часы" in second_cell:
-                    groups = []
-                    for cell in row[2:]:
-                        cell_str = str(cell).strip()
-                        if cell_str and cell_str not in ["День", "Часы"] and not cell_str.isspace():
-                            groups.append(cell_str)
-                    return groups if groups else []
+                content = await response.read()
+                data = []
+                
+                if ".xlsx" in url.lower():
+                    wb = openpyxl.load_workbook(io.BytesIO(content))
+                    sheet = wb.active
+                    for row in sheet.iter_rows(values_only=True):
+                        data.append([cell if cell is not None else "" for cell in row])
+                else:
+                    wb = xlrd.open_workbook(file_contents=content)
+                    sheet = wb.sheet_by_index(0)
+                    for r in range(sheet.nrows):
+                        data.append([sheet.cell_value(r, c) or "" for c in range(sheet.ncols)])
+                return data
+    except Exception as e:
+        print(f"❌ Исключение при загрузке и парсинге {url}: {e}")
+        return None
+
+
+async def get_schedule_data_from_url(url: str):
+    """Получает данные расписания из URL, используя кэш."""
+    current_time = time.time()
     
+    if url in SCHEDULE_CACHE:
+        cached_time, cached_data = SCHEDULE_CACHE[url]
+        if current_time - cached_time < CACHE_DURATION_SECONDS:
+            return cached_data
+    
+    new_data = await _load_and_parse_xls(url)
+    
+    if new_data:
+        SCHEDULE_CACHE[url] = (current_time, new_data)
+    
+    return new_data
+
+
+def get_schedule_urls(faculty: str, course: int, is_even: bool) -> list:
+    """Получает список URL-адресов для расписания."""
+    week_folder = "Четная неделя" if is_even else "Нечетная неделя"
+    try:
+        urls = SCHEDULE_URLS.get(week_folder, {}).get(faculty, {}).get(course)
+        if urls:
+            return [urls] if isinstance(urls, str) else urls
+    except Exception:
+        pass
     return []
 
-def find_group_column(schedule_data: list, group_name: str) -> int:
-    """Находит номер столбца для указанной группы"""
-    if not schedule_data:
-        return -1
-        
-    for row in schedule_data:
-        if len(row) > 2:
-            first_cell = str(row[0]).lower() if row[0] else ""
-            second_cell = str(row[1]).lower() if row[1] else ""
+
+async def get_available_groups(faculty: str, course: int) -> list:
+    """Получает список доступных групп, используя кэшированные данные."""
+    for is_even in [False, True]:
+        urls = get_schedule_urls(faculty, course, is_even)
+        for url in urls:
+            schedule_data = await get_schedule_data_from_url(url)
+            if not schedule_data: continue
             
-            if "день" in first_cell and "часы" in second_cell:
-                for col_idx, cell in enumerate(row[2:], start=2):
-                    if str(cell).strip() == group_name:
-                        return col_idx
-                break
-                
+            for row in schedule_data:
+                if len(row) > 2 and "день" in str(row[0]).lower() and "часы" in str(row[1]).lower():
+                    groups = [
+                        str(cell).strip() for cell in row[2:] 
+                        if str(cell).strip() and "день" not in str(cell).lower() and "часы" not in str(cell).lower()
+                    ]
+                    if groups: return groups
+    return []
+
+
+def find_group_column(schedule_data: list, group_name: str) -> int:
+    """Находит индекс столбца для группы."""
+    if not schedule_data: return -1
+    for row in schedule_data:
+        if len(row) > 2 and "день" in str(row[0]).lower() and "часы" in str(row[1]).lower():
+            for col_idx, cell in enumerate(row):
+                if str(cell).strip() == group_name:
+                    return col_idx
+            break
     return -1
 
+
 def find_schedule_for_date(schedule_data: list, group_column: int, target_date: datetime):
-    """Находит расписание для группы на указанную дату"""
-    if not schedule_data or group_column < 0:
-        return []
+    """Ищет расписание на конкретную дату в данных файла."""
+    if not schedule_data or group_column < 0: return None
     
-    # Преобразуем в наивный datetime для поиска
-    if target_date.tzinfo is not None:
-        search_date = target_date.replace(tzinfo=None)
-    else:
-        search_date = target_date
+    search_date = target_date.date()
     
-    lessons = []
-    current_time = None
-    
-    # Проходим по всем строкам таблицы
-    i = 0
-    while i < len(schedule_data):
-        row = schedule_data[i]
+    for i, row in enumerate(schedule_data):
+        if not row or not row[0]: continue
         
-        if not row or not row[0]:
-            i += 1
-            continue
-            
-        # Парсим дату из ячейки
-        date_cell = str(row[0])
-        parsed_date = parse_russian_date(date_cell)
-        
-        if parsed_date and parsed_date.date() == search_date.date():
-            print(f"✅ Найдена дата {search_date.strftime('%d.%m.%Y')} в строке {i}")
-            
-            # Нашли нужную дату, собираем пары до следующей даты
-            j = i
-            while j < len(schedule_data):
+        parsed_date = parse_russian_date(str(row[0]))
+        if parsed_date and parsed_date.date() == search_date:
+            lessons = []
+            current_time = None
+            for j in range(i, len(schedule_data)):
                 current_row = schedule_data[j]
                 
-                # Проверяем время
-                time = current_row[1] if len(current_row) > 1 else ""
+                if j > i and current_row and current_row[0]:
+                    next_date = parse_russian_date(str(current_row[0]))
+                    if next_date and next_date.date() != search_date: break
+                
+                time_cell = current_row[1] if len(current_row) > 1 else ""
+                if time_cell and str(time_cell).strip():
+                    current_time = str(time_cell).strip()
+                
                 subject_cell = current_row[group_column] if len(current_row) > group_column else ""
-                
-                # Обновляем время если есть
-                if time and str(time).strip():
-                    current_time = str(time).strip()
-                
-                # Добавляем пару если есть данные
                 if current_time and subject_cell and str(subject_cell).strip():
-                    subject_text = str(subject_cell)
-                    subject_lines = []
-                    
-                    for line in subject_text.split('\n'):
-                        cleaned_line = line.strip().lstrip('-').strip()
-                        if cleaned_line:
-                            subject_lines.append(cleaned_line)
-                    
+                    subject_lines = [line.strip().lstrip('-').strip() for line in str(subject_cell).split('\n') if line.strip()]
                     if subject_lines:
-                        # Проверяем, нет ли уже пары в это время
-                        time_exists = False
-                        for idx, (existing_time, existing_lines) in enumerate(lessons):
-                            if existing_time == current_time:
-                                # Объединяем с существующей парой
-                                lessons[idx] = (current_time, existing_lines + subject_lines)
-                                time_exists = True
-                                break
-                        
-                        if not time_exists:
-                            lessons.append((current_time, subject_lines))
-                
-                j += 1
-                
-                # Прерываем если нашли следующую дату
-                if j < len(schedule_data) and schedule_data[j] and schedule_data[j][0]:
-                    next_date_cell = str(schedule_data[j][0])
-                    next_parsed_date = parse_russian_date(next_date_cell)
-                    if next_parsed_date and next_parsed_date != parsed_date:
-                        break
-            
+                        lessons.append((current_time, subject_lines))
             return lessons
-        
-        i += 1
-    
-    print(f"❌ Дата {search_date.strftime('%d.%m.%Y')} не найдена в расписании")
+            
     return None
 
-def get_day_schedule(faculty: str, course: int, group: str, command: str):
-    """Основная функция для получения расписания"""
+
+async def get_day_schedule(faculty: str, course: int, group: str, command: str):
+    """Основная функция для получения расписания группы."""
     now = datetime.now(TZ)
     target_date = now
 
-    # Определяем целевую дату
-    if command == "сегодня":
-        target_date = now
-    elif command == "завтра":
+    if command == "завтра":
         target_date = now + timedelta(days=1)
-    else:
-        # ===== ИЗМЕНЕННАЯ ЛОГИКА =====
+    elif command != "сегодня":
         days_map = {"пн": 0, "вт": 1, "ср": 2, "чт": 3, "пт": 4, "сб": 5}
-        today_weekday = now.weekday()  # Сегодняшний день недели (0=Пн, 6=Вс)
-        target_weekday = days_map.get(command)
-
-        if target_weekday is not None:
-            # Рассчитываем разницу в днях
-            shift = target_weekday - today_weekday
-            
-            # Если день уже прошел на этой неделе (отрицательный сдвиг),
-            # то ищем его на следующей неделе.
-            if shift < 0:
-                shift += 7
-            
-            target_date = now + timedelta(days=shift)
-        # ===============================
+        shift = days_map.get(command, now.weekday()) - now.weekday()
+        if shift < 0: shift += 7
+        target_date = now + timedelta(days=shift)
     
-    print(f"🎯 Ищем расписание на: {target_date.strftime('%d.%m.%Y')}")
+    found_lessons, found_week_is_even = None, None
     
-    # Пробуем оба файла (четная и нечетная неделя)
     for is_even in [False, True]:
-        file_path = get_schedule_file_path(faculty, course, is_even)
-        if not file_path:
-            continue
+        urls = get_schedule_urls(faculty, course, is_even)
+        for url in urls:
+            schedule_data = await get_schedule_data_from_url(url)
+            if not schedule_data: continue
             
-        print(f"🔍 Проверяем файл: {'Четная' if is_even else 'Нечетная'} неделя")
-        
-        schedule_data = load_schedule(file_path)
-        if not schedule_data:
-            continue
-        
-        group_column = find_group_column(schedule_data, group)
-        if group_column == -1:
-            continue
-        
-        lessons = find_schedule_for_date(schedule_data, group_column, target_date)
-        
-        # Проверяем, что функция вернула не None (т.е. дата в файле была найдена)
-        if lessons is not None:
-            print(f"✅ Найдена дата в {'четной' if is_even else 'нечетной'} неделе. Пар: {len(lessons)}")
-            # Теперь format_schedule будет вызвана даже с пустым списком пар
-            return format_schedule(lessons, is_even, target_date, group)
-        else:
-            # Если lessons is None, значит дата в файле не найдена, и мы просто ищем в следующем файле
-            print(f"❌ В файле {'четной' if is_even else 'нечетной'} недели дата не найдена")
+            group_column = find_group_column(schedule_data, group)
+            if group_column == -1: continue
+            
+            lessons = find_schedule_for_date(schedule_data, group_column, target_date)
+            
+            if lessons is not None:
+                found_lessons, found_week_is_even = lessons, is_even
+                break
+        if found_lessons is not None: break
     
-    return "❌ Расписание на выбранную дату не найдено"
+    if found_lessons is not None:
+        return format_schedule(found_lessons, found_week_is_even, target_date, group)
+    else:
+        is_target_week_even = (target_date.isocalendar()[1] % 2 == 0)
+        return format_schedule([], is_target_week_even, target_date, group)
+
 
 def format_schedule(lessons, is_even, date, group):
-    """Форматирует расписание в красивый текст"""
-    if date.tzinfo is not None:
-        format_date = date.replace(tzinfo=None)
-    else:
-        format_date = date
-        
-    week_str = "Четная" if is_even else "Нечетная"
-    day_short = RUS_DAYS_SHORT[format_date.weekday()]
-    month_rus = RUS_MONTHS[format_date.month]
-    month_rus = month_rus[0].upper() + month_rus[1:]
-    date_str = f"{day_short} {format_date.day} {month_rus}"
-    
-    escaped_week = escape_markdown(week_str)
-    escaped_group = escape_markdown(group)
-    escaped_date = escape_markdown(date_str)
-    
+    """Форматирует расписание группы."""
+    date_str = f"{RUS_DAYS_SHORT[date.weekday()]} {date.day} {RUS_MONTHS[date.month]}"
     result = [
-        f"*📅 {escaped_week} неделя*",
-        f"*👥 {escaped_group}*",
-        "",
-        f"🟢__*{escaped_date}*__",
-        "",
+        f"*📅 {('Четная' if is_even else 'Нечетная')} неделя*",
+        f"*👥 {escape_markdown(group)}*",
+        f"\n🟢__*{escape_markdown(date_str)}*__\n"
     ]
     
     if not lessons:
-        result.append("❌ *Пар нет*")
+        result.append("🎉 *Пар нет, можно отдыхать\\!*")
     else:
-        # Сортируем пары по времени
+        unique_lessons = []
+        [unique_lessons.append(x) for x in lessons if x not in unique_lessons]
+        
         def time_key(lesson):
-            time_str = lesson[0]
-            # Пытаемся преобразовать время в минуты для сортировки
-            try:
-                if '-' in time_str:
-                    start_time = time_str.split('-')[0].strip()
-                    hours, minutes = map(int, start_time.split(':'))
-                    return hours * 60 + minutes
-                return 0
-            except:
-                return 0
+            try: return tuple(map(int, lesson[0].split('-')[0].strip().split(':')))
+            except: return (0, 0)
         
-        sorted_lessons = sorted(lessons, key=time_key)
-        
-        for time, subject_lines in sorted_lessons:
-            escaped_time = escape_markdown(time)
-            result.append(f"*⏰ {escaped_time}*")
-            
+        for time, subject_lines in sorted(unique_lessons, key=time_key):
+            result.append(f"*⏰ {escape_markdown(time)}*")
             for line in subject_lines:
-                escaped_line = escape_markdown(line)
-                result.append(f"\\- {escaped_line}")
+                result.append(f"• {escape_markdown(line)}")
             result.append("")
 
+    return "\n".join(result)
+
+# ===== ФУНКЦИИ ДЛЯ ПОИСКА ПРЕПОДАВАТЕЛЯ (ИСПРАВЛЕНЫ) =====
+
+async def get_teacher_schedule(teacher_name: str, target_date: datetime):
+    """Ищет расписание преподавателя по всем файлам на указанную дату."""
+    all_findings = []
+    
+    for week_type, faculties in SCHEDULE_URLS.items():
+        is_even_week = (week_type == "Четная неделя")
+        for faculty, courses in faculties.items():
+            for course, urls in courses.items():
+                url_list = [urls] if isinstance(urls, str) else urls
+                for url in url_list:
+                    schedule_data = await get_schedule_data_from_url(url)
+                    if not schedule_data: continue
+                    
+                    groups = {}
+                    for i, row in enumerate(schedule_data):
+                        if len(row) > 2 and "день" in str(row[0]).lower() and "часы" in str(row[1]).lower():
+                            for col, cell in enumerate(row):
+                                if col > 1 and str(cell).strip():
+                                    groups[col] = str(cell).strip()
+                            break
+                    
+                    if not groups: continue
+
+                    for i, row in enumerate(schedule_data):
+                        parsed_date = parse_russian_date(str(row[0]))
+                        if parsed_date and parsed_date.date() == target_date.date():
+                            current_time = None
+                            for j in range(i, len(schedule_data)):
+                                current_row = schedule_data[j]
+                                if j > i and current_row and current_row[0]:
+                                    next_date = parse_russian_date(str(current_row[0]))
+                                    if next_date and next_date.date() != target_date.date(): break
+                                
+                                time_cell = current_row[1] if len(current_row) > 1 else ""
+                                if time_cell and str(time_cell).strip():
+                                    current_time = str(time_cell).strip()
+
+                                for col, group_name in groups.items():
+                                    if col < len(current_row) and teacher_name.lower() in str(current_row[col]).lower():
+                                        subject_lines = [line.strip().lstrip('-').strip() for line in str(current_row[col]).split('\n') if line.strip()]
+                                        if current_time and subject_lines:
+                                            all_findings.append({
+                                                "time": current_time,
+                                                "group": group_name,
+                                                "details": tuple(subject_lines),  # Преобразуем в tuple для хэширования
+                                                "is_even": is_even_week
+                                            })
+
+    return format_teacher_schedule(teacher_name, target_date, all_findings)
+
+def format_teacher_schedule(teacher_name, date, findings):
+    """Форматирует найденное расписание преподавателя."""
+    date_str = f"{RUS_DAYS_SHORT[date.weekday()]} {date.day} {RUS_MONTHS[date.month]}"
+    
+    result = [
+        f"*{escape_markdown('🧑‍🏫 Расписание для преподавателя:')}*",
+        f"*{escape_markdown(teacher_name)}*",
+        f"\n🟢__*{escape_markdown(date_str)}*__\n"
+    ]
+    
+    if not findings:
+        result.append("❌ *На указанную дату пары не найдены\\.*")
+    else:
+        # ✅ ИСПРАВЛЕНИЕ: Новый, безопасный способ убрать дубликаты
+        unique_findings_str = {str(d) for d in findings}
+        unique_findings = [eval(s) for s in unique_findings_str]
+        
+        # Определяем неделю по первой найденной паре
+        is_even = unique_findings[0]['is_even']
+        result.insert(1, f"*📅 {('Четная' if is_even else 'Нечетная')} неделя*")
+        
+        def time_key(finding):
+            try: return tuple(map(int, finding['time'].split('-')[0].strip().split(':')))
+            except: return (0, 0)
+        
+        for item in sorted(unique_findings, key=time_key):
+            result.append(f"*⏰ {escape_markdown(item['time'])}*")
+            # ✅ ДОБАВЛЕНО: Отображение группы
+            result.append(f"👥 *Группа:* {escape_markdown(item['group'])}")
+            for line in item['details']:
+                result.append(f"• {escape_markdown(line)}")
+            result.append("")
+            
     return "\n".join(result)
 
