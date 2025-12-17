@@ -105,9 +105,23 @@ async def start_cmd(message: Message, state: FSMContext, bot: Bot):
     user_id = message.from_user.id
     old_user_data = await get_user_data(user_id)
     
+    # === ВОТ ЭТОТ БЛОК ДОБАВЛЯЕМ ДЛЯ ЛОГОВ УДАЛЕНИЯ ===
     if old_user_data:
-        # ... (код отправки сообщения об удалении)
+        try:
+            log_text = (
+                f"🗑 Удалена старая запись пользователя:\n"
+                f"Имя: {old_user_data.get('full_name', 'Неизвестно')}\n"
+                f"Username: {old_user_data.get('username', 'Нет')}\n"
+                f"Факультет: {old_user_data.get('faculty', '-')}\n"
+                f"Курс: {old_user_data.get('course', '-')}\n"
+                f"Группа: {old_user_data.get('group', '-')}"
+            )
+            await bot.send_message(chat_id=GROUP_CHAT_ID, text=log_text)
+        except Exception as e:
+            print(f"❌ Не удалось отправить лог удаления: {e}")
+            
         await remove_user_data(user_id)
+    # ==================================================
     
     await message.answer(
         "Добро пожаловать! Выберите ваш факультет:",
@@ -189,15 +203,31 @@ async def group_chosen(message: Message, state: FSMContext, bot: Bot):
         return
     
     user_id = message.from_user.id
+    # Формируем данные пользователя
     user_info = {
-        'faculty': data['faculty'], 'course': data['course'], 'group': group,
+        'faculty': data['faculty'], 
+        'course': data['course'], 
+        'group': group,
         'username': f"@{message.from_user.username}" if message.from_user.username else "нет username",
         'full_name': message.from_user.full_name or "Неизвестно"
     }
     
     await update_user_data(user_id, user_info)
     
-    # ... (код отправки сообщения админу о новой регистрации)
+    # === ВОТ ЭТОТ БЛОК ДОБАВЛЯЕМ ДЛЯ ЛОГОВ РЕГИСТРАЦИИ ===
+    try:
+        log_text = (
+            f"✅ Новый пользователь зарегистрирован:\n"
+            f"Имя: {user_info['full_name']}\n"
+            f"Username: {user_info['username']}\n"
+            f"Факультет: {user_info['faculty']}\n"
+            f"Курс: {user_info['course']}\n"
+            f"Группа: {user_info['group']}"
+        )
+        await bot.send_message(chat_id=GROUP_CHAT_ID, text=log_text)
+    except Exception as e:
+        print(f"❌ Не удалось отправить лог регистрации: {e}")
+    # =====================================================
     
     await message.answer(
         f"✅ Регистрация завершена!\n"
@@ -310,5 +340,6 @@ async def handle_teacher_date_selection(callback_query: types.CallbackQuery, sta
     await callback_query.message.edit_text(schedule_text, parse_mode=ParseMode.MARKDOWN_V2)
     
     await state.clear()
+
 
 
