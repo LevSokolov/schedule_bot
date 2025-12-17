@@ -20,7 +20,7 @@ if not DATABASE_URL:
 TZ = timezone(timedelta(hours=5))  # Екатеринбург UTC+5
 
 # ID группы для уведомлений (можно тоже хранить в .env)
-GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4940561857"))
+GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4805485452"))
 
 # Структура факультетов
 FACULTIES = {
@@ -207,4 +207,5 @@ async def get_user_data(user_id):
         return None
     finally:
         await conn.close()
+
 
