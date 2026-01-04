@@ -1,7 +1,7 @@
 import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from config import BOT_TOKEN, create_tables
+from config import BOT_TOKEN, create_tables, init_db_pool, close_db_pool
 from handlers import router
 from aiohttp import web
 
@@ -9,7 +9,10 @@ async def handle(request):
     return web.Response(text="✅ Bot is alive!", content_type="text/plain")
 
 async def main():
-    # Создаем таблицы в базе данных
+    # 1. Сначала запускаем пул соединений
+    await init_db_pool()
+    
+    # 2. Создаем таблицы
     await create_tables()
     
     bot = Bot(token=BOT_TOKEN)
@@ -23,7 +26,10 @@ async def main():
 
     # Запуск Telegram бота и веб-сервера параллельно
     async def run_bot():
-        await dp.start_polling(bot)
+        try:
+            await dp.start_polling(bot)
+        finally:
+            await close_db_pool() # Закрываем базу при остановке бота
 
     async def run_web():
         runner = web.AppRunner(app)
@@ -31,8 +37,12 @@ async def main():
         site = web.TCPSite(runner, "0.0.0.0", 10000)
         await site.start()
         print("🌐 Web server запущен на порту 10000")
+        # Веб-сервер будет работать вечно, пока не упадет
 
     await asyncio.gather(run_bot(), run_web())
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        print("Бот остановлен")
