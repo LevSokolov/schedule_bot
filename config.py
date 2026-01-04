@@ -129,11 +129,12 @@ SCHEDULE_URLS = {
     }
 }
 
-# ===== Функции работы с базой данных (ВЕРНУЛИ КАК БЫЛО) =====
+# ===== Функции работы с базой данных (С ЗАЩИТОЙ ОТ ТАЙМАУТОВ) =====
 async def create_tables():
     """Создает таблицы в базе данных если они не существуют"""
-    conn = await asyncpg.connect(DATABASE_URL)
+    # Добавляем таймаут 60 сек и SSL
     try:
+        conn = await asyncpg.connect(DATABASE_URL, timeout=60, ssl='require')
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id BIGINT PRIMARY KEY,
@@ -146,15 +147,14 @@ async def create_tables():
             )
         ''')
         print("✅ Таблицы в базе данных созданы/проверены")
+        await conn.close()
     except Exception as e:
         print(f"❌ Ошибка создания таблиц: {e}")
-    finally:
-        await conn.close()
 
 async def update_user_data(user_id, user_info):
     """Обновляет или создает данные пользователя"""
-    conn = await asyncpg.connect(DATABASE_URL)
     try:
+        conn = await asyncpg.connect(DATABASE_URL, timeout=60, ssl='require')
         await conn.execute('''
             INSERT INTO users (user_id, faculty, course, group_name, username, full_name)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -168,31 +168,30 @@ async def update_user_data(user_id, user_info):
                 registered_at = CURRENT_TIMESTAMP
         ''', user_id, user_info['faculty'], user_info['course'], 
             user_info['group'], user_info['username'], user_info['full_name'])
+        await conn.close()
     except Exception as e:
         print(f"❌ Ошибка обновления данных пользователя: {e}")
-    finally:
-        await conn.close()
 
 async def remove_user_data(user_id):
     """Удаляет данные пользователя"""
-    conn = await asyncpg.connect(DATABASE_URL)
     try:
+        conn = await asyncpg.connect(DATABASE_URL, timeout=60, ssl='require')
         result = await conn.execute('DELETE FROM users WHERE user_id = $1', user_id)
+        await conn.close()
         return "DELETE 1" in result
     except Exception as e:
         print(f"❌ Ошибка удаления пользователя: {e}")
         return False
-    finally:
-        await conn.close()
 
 async def get_user_data(user_id):
     """Получает данные пользователя"""
-    conn = await asyncpg.connect(DATABASE_URL)
     try:
+        conn = await asyncpg.connect(DATABASE_URL, timeout=60, ssl='require')
         row = await conn.fetchrow(
             'SELECT faculty, course, group_name, username, full_name FROM users WHERE user_id = $1', 
             user_id
         )
+        await conn.close()
         if row:
             return {
                 'faculty': row['faculty'],
@@ -205,5 +204,3 @@ async def get_user_data(user_id):
     except Exception as e:
         print(f"❌ Ошибка получения данных пользователя: {e}")
         return None
-    finally:
-        await conn.close()
