@@ -1,53 +1,53 @@
 import os
+import ssl  # 👈 ВАЖНО: Добавляем этот модуль
 import asyncpg
 from datetime import timezone, timedelta
 from dotenv import load_dotenv
 
-# Загружаем переменные из .env
 load_dotenv()
 
-# Безопасно берём токен из окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN не найден! Укажи его в .env")
+    raise ValueError("❌ BOT_TOKEN не найден!")
 
-# URL базы данных
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    raise ValueError("❌ DATABASE_URL не найден! Укажи его в .env")
+    raise ValueError("❌ DATABASE_URL не найден!")
 
-# Временная зона
-TZ = timezone(timedelta(hours=5))  # Екатеринбург UTC+5
-
-# ID группы для уведомлений
+TZ = timezone(timedelta(hours=5))
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4805485452"))
 
-# ГЛОБАЛЬНЫЙ ПУЛ СОЕДИНЕНИЙ
 db_pool = None
-
-# 🔥 КЭШ ПОЛЬЗОВАТЕЛЕЙ В ПАМЯТИ
-# Это то, что ускорит твоего бота. Данные хранятся тут, чтобы не дергать базу лишний раз.
 USER_CACHE = {}
 
 async def init_db_pool():
-    """Инициализация пула соединений при старте бота"""
     global db_pool
     if db_pool is None:
-        # Настройка для Session Pooler (порт 5432)
-        # Мы оставили увеличенные таймауты для стабильности на Render
-        db_pool = await asyncpg.create_pool(
-            DATABASE_URL, 
-            min_size=1, 
-            max_size=5,              # Ограничиваем, чтобы не перегружать бесплатный тариф
-            command_timeout=60,      # Время на выполнение запроса
-            statement_cache_size=0,  # Для Supabase всегда лучше 0
-            ssl='require',           # Стандартный SSL для порта 5432
-            timeout=120               # Время на подключение (увеличено с 10 до 30)
-        )
-        print("✅ Пул соединений с БД успешно создан")
+        # 👇 СОЗДАЕМ "ГРЯЗНЫЙ" SSL КОНТЕКСТ
+        # Он шифрует данные, но не тратит время на проверку сертификатов Supabase.
+        # Это решает проблему TimeoutError.
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+
+        print("⏳ Подключение к БД...")
+        try:
+            db_pool = await asyncpg.create_pool(
+                DATABASE_URL, 
+                min_size=1, 
+                max_size=5,
+                command_timeout=10,      # Быстрый таймаут для команд
+                statement_cache_size=0,  # ОБЯЗАТЕЛЬНО 0 для порта 6543
+                ssl=ssl_ctx,             # 👈 Используем наш быстрый контекст
+                timeout=10               # 👈 Всего 10 сек на подключение
+            )
+            print("✅ Пул соединений с БД успешно создан")
+        except Exception as e:
+            print(f"❌ КРИТИЧЕСКАЯ ОШИБКА ПОДКЛЮЧЕНИЯ К БД: {e}")
+            # Бот упадет, но мы хотя бы увидим реальную ошибку в логах, а не Timed Out
+            raise e
 
 async def close_db_pool():
-    """Закрытие пула при остановке"""
     global db_pool
     if db_pool:
         await db_pool.close()
@@ -67,9 +67,7 @@ FACULTIES = {
 # ===== ССЫЛКИ НА РАСПИСАНИЯ =====
 SCHEDULE_URLS = {
     "Нечетная неделя": {
-        "ДиА": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-21084187_1",
-        },
+        "ДиА": { 1: "https://bb.usurt.ru/bbcswebdav/xid-21084187_1" },
         "Механический факультет": {
             1: "https://bb.usurt.ru/bbcswebdav/xid-20933625_1",
             2: "https://bb.usurt.ru/bbcswebdav/xid-23861424_1",
@@ -163,8 +161,6 @@ SCHEDULE_URLS = {
 # ===== Функции работы с базой данных (ЧЕРЕЗ ПУЛ + КЭШ) =====
 
 async def create_tables():
-    """Создает таблицы в базе данных если они не существуют"""
-    # Используем пул для получения соединения
     try:
         async with db_pool.acquire() as conn:
             await conn.execute('''
@@ -183,10 +179,6 @@ async def create_tables():
         print(f"❌ Ошибка создания таблиц: {e}")
 
 async def update_user_data(user_id, user_info):
-    """Обновляет или создает данные пользователя (БД + КЭШ)"""
-    
-    # 1. Сначала обновляем кэш (это моментально)
-    # Используем те же ключи, что в БД, для удобства
     USER_CACHE[user_id] = {
         'faculty': user_info['faculty'],
         'course': user_info['course'],
@@ -194,8 +186,6 @@ async def update_user_data(user_id, user_info):
         'username': user_info['username'],
         'full_name': user_info['full_name']
     }
-
-    # 2. Потом обновляем базу данных (это может занять время, но пользователь не ждет)
     try:
         async with db_pool.acquire() as conn:
             await conn.execute('''
@@ -215,13 +205,8 @@ async def update_user_data(user_id, user_info):
         print(f"❌ Ошибка обновления данных пользователя в БД: {e}")
 
 async def remove_user_data(user_id):
-    """Удаляет данные пользователя (БД + КЭШ)"""
-    
-    # 1. Удаляем из кэша
     if user_id in USER_CACHE:
         del USER_CACHE[user_id]
-
-    # 2. Удаляем из БД
     try:
         async with db_pool.acquire() as conn:
             result = await conn.execute('DELETE FROM users WHERE user_id = $1', user_id)
@@ -231,13 +216,8 @@ async def remove_user_data(user_id):
         return False
 
 async def get_user_data(user_id):
-    """Получает данные пользователя (Сначала КЭШ, потом БД)"""
-    
-    # 1. ПРОВЕРЯЕМ КЭШ - Это убирает лишний запрос к БД и убирает задержку
     if user_id in USER_CACHE:
         return USER_CACHE[user_id]
-
-    # 2. Если в кэше пусто (например, после перезагрузки бота), идем в базу
     try:
         async with db_pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -252,11 +232,9 @@ async def get_user_data(user_id):
                     'username': row['username'],
                     'full_name': row['full_name']
                 }
-                # Сохраняем найденное в кэш, чтобы в следующий раз было быстро
                 USER_CACHE[user_id] = data
                 return data
             return None
     except Exception as e:
         print(f"❌ Ошибка получения данных пользователя: {e}")
         return None
-
