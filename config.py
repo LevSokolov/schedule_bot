@@ -42,7 +42,7 @@ async def init_db_pool():
             command_timeout=60,      # Время на выполнение запроса
             statement_cache_size=0,  # Для Supabase всегда лучше 0
             ssl='require',           # Стандартный SSL для порта 5432
-            timeout=30               # Время на подключение (увеличено с 10 до 30)
+            timeout=120               # Время на подключение (увеличено с 10 до 30)
         )
         print("✅ Пул соединений с БД успешно создан")
 
@@ -259,3 +259,4 @@ async def get_user_data(user_id):
     except Exception as e:
         print(f"❌ Ошибка получения данных пользователя: {e}")
         return None
+
