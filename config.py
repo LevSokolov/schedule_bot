@@ -1,5 +1,4 @@
 import os
-import ssl  # 👈 ВАЖНО: Добавили этот импорт
 import asyncpg
 from datetime import timezone, timedelta
 from dotenv import load_dotenv
@@ -27,28 +26,26 @@ GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4805485452"))
 db_pool = None
 
 # 🔥 КЭШ ПОЛЬЗОВАТЕЛЕЙ В ПАМЯТИ
+# Структура: {user_id: {'faculty': ..., 'group': ...}}
 USER_CACHE = {}
 
 async def init_db_pool():
     """Инициализация пула соединений при старте бота"""
     global db_pool
     if db_pool is None:
-        # 👇 СОЗДАЕМ СПЕЦИАЛЬНЫЙ SSL КОНТЕКСТ
-        # Это решает проблему зависания при подключении к Pooler
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-
         db_pool = await asyncpg.create_pool(
             DATABASE_URL, 
             min_size=1, 
             max_size=5,
-            command_timeout=60,
-            statement_cache_size=0, 
-            ssl=ssl_context,  # 👈 Передаем наш контекст вместо строки 'require'
-            timeout=30 
+            command_timeout=60,      # Время на выполнение запроса
+            statement_cache_size=0,  # ОБЯЗАТЕЛЬНО для порта 6543
+            ssl='require',
+            timeout=30               # 🔥 ДОБАВИЛИ: даем 30 сек на подключение (было 10 по умолчанию)
         )
         print("✅ Пул соединений с БД успешно создан")
+        
+        # 🔥 При старте можно загрузить активных пользователей в кэш (опционально),
+        # но для начала пусть кэш заполняется по мере обращений.
 
 async def close_db_pool():
     """Закрытие пула при остановке"""
@@ -70,7 +67,8 @@ FACULTIES = {
 
 # ===== ССЫЛКИ НА РАСПИСАНИЯ (Тут твой словарь SCHEDULE_URLS, оставь как был) =====
 SCHEDULE_URLS = {
-    # ... Вставь сюда свой полный словарь ссылок ...
+    # ... Вставь сюда свой большой словарь со ссылками ...
+    # Я сократил его для удобства чтения, но ты оставь свой полный код
     "Нечетная неделя": {
         "ДиА": { 1: "https://bb.usurt.ru/bbcswebdav/xid-21084187_1" },
         # ... остальные ссылки ...
@@ -79,6 +77,8 @@ SCHEDULE_URLS = {
         # ... остальные ссылки ...
     }
 }
+# (Если у тебя код разбит по файлам, просто убедись, что переменная SCHEDULE_URLS на месте)
+
 
 # ===== Функции работы с базой данных (С КЭШИРОВАНИЕМ) =====
 
@@ -104,7 +104,7 @@ async def create_tables():
 async def update_user_data(user_id, user_info):
     """Обновляет данные в БД и сразу в КЭШЕ"""
     
-    # 1. Обновляем локальный кэш
+    # 1. Обновляем локальный кэш (мгновенно)
     USER_CACHE[user_id] = {
         'faculty': user_info['faculty'],
         'course': user_info['course'],
@@ -113,7 +113,7 @@ async def update_user_data(user_id, user_info):
         'full_name': user_info['full_name']
     }
 
-    # 2. Обновляем базу данных
+    # 2. Обновляем базу данных (асинхронно)
     try:
         async with db_pool.acquire() as conn:
             await conn.execute('''
@@ -128,13 +128,14 @@ async def update_user_data(user_id, user_info):
                     full_name = $6,
                     registered_at = CURRENT_TIMESTAMP
             ''', user_id, user_info['faculty'], user_info['course'], 
-                user_info.get('group', user_info.get('group_name')), 
+                user_info.get('group', user_info.get('group_name')), # Защита от разных ключей
                 user_info['username'], user_info['full_name'])
     except Exception as e:
         print(f"❌ Ошибка обновления данных пользователя в БД: {e}")
 
 async def remove_user_data(user_id):
     """Удаляет данные из БД и кэша"""
+    # Удаляем из кэша
     if user_id in USER_CACHE:
         del USER_CACHE[user_id]
 
@@ -148,9 +149,12 @@ async def remove_user_data(user_id):
 
 async def get_user_data(user_id):
     """Получает данные пользователя (сначала из КЭША, потом из БД)"""
+    
+    # 1. Проверяем кэш (это занимает 0.00001 сек)
     if user_id in USER_CACHE:
         return USER_CACHE[user_id]
 
+    # 2. Если в кэше нет, идем в базу (медленно)
     try:
         async with db_pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -165,6 +169,7 @@ async def get_user_data(user_id):
                     'username': row['username'],
                     'full_name': row['full_name']
                 }
+                # Сохраняем в кэш на будущее
                 USER_CACHE[user_id] = data
                 return data
             return None
