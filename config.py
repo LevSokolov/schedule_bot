@@ -33,15 +33,14 @@ async def init_db_pool():
     """Инициализация пула соединений при старте бота"""
     global db_pool
     if db_pool is None:
-        # Совет: Если используешь Transaction Pooler (6543), statement_cache_size=0 обязателен.
-        # Но лучше использовать Session Pooler или Direct Connection (5432) с малым max_size.
         db_pool = await asyncpg.create_pool(
             DATABASE_URL, 
             min_size=1, 
-            max_size=5,  # 🔥 Уменьшили до 5, чтобы не перегружать бесплатную Supabase
-            command_timeout=10, # Таймаут поменьше
-            statement_cache_size=0, 
-            ssl='require'
+            max_size=5,
+            command_timeout=60,      # Время на выполнение запроса
+            statement_cache_size=0,  # ОБЯЗАТЕЛЬНО для порта 6543
+            ssl='require',
+            timeout=30               # 🔥 ДОБАВИЛИ: даем 30 сек на подключение (было 10 по умолчанию)
         )
         print("✅ Пул соединений с БД успешно создан")
         
@@ -177,3 +176,4 @@ async def get_user_data(user_id):
     except Exception as e:
         print(f"❌ Ошибка получения данных пользователя: {e}")
         return None
+
