@@ -1,50 +1,58 @@
 import os
-import ssl
 import asyncpg
 from datetime import timezone, timedelta
 from dotenv import load_dotenv
 
+# Загружаем переменные из .env
 load_dotenv()
 
+# Безопасно берём токен из окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN не найден!")
+    raise ValueError("❌ BOT_TOKEN не найден! Укажи его в .env")
 
+# URL базы данных
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    raise ValueError("❌ DATABASE_URL не найден!")
+    raise ValueError("❌ DATABASE_URL не найден! Укажи его в .env")
 
-TZ = timezone(timedelta(hours=5))
+# Временная зона
+TZ = timezone(timedelta(hours=5))  # Екатеринбург UTC+5
+
+# ID группы для уведомлений
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4805485452"))
 
+# ГЛОБАЛЬНЫЙ ПУЛ СОЕДИНЕНИЙ
 db_pool = None
+
+# 🔥 КЭШ ПОЛЬЗОВАТЕЛЕЙ В ПАМЯТИ
+# Храним данные тут, чтобы бот работал мгновенно и не дергал базу лишний раз
 USER_CACHE = {}
 
 async def init_db_pool():
+    """Инициализация пула соединений при старте бота"""
     global db_pool
     if db_pool is None:
-        # СОЗДАЕМ КОНТЕКСТ БЕЗ ПРОВЕРКИ (Для скорости)
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
-
-        print("⏳ Подключаемся к базе данных (Порт 5432 + Fast SSL)...")
+        print("⏳ Подключение к Neon DB...")
         try:
+            # Настройки для Neon.tech
+            # Neon отлично работает со стандартным ssl='require'
             db_pool = await asyncpg.create_pool(
                 DATABASE_URL, 
                 min_size=1, 
-                max_size=5,
-                command_timeout=60,
-                statement_cache_size=0,
-                ssl=ssl_ctx,     # Игнорируем проверку сертификата
-                timeout=20       # 20 секунд - золотая середина
+                max_size=5,              # Для бесплатного тарифа Render 5 соединений достаточно
+                command_timeout=60,      # Время на выполнение запроса
+                statement_cache_size=0,  # Для облачных баз лучше отключать кэш выражений
+                ssl='require',           # Стандартный SSL для Neon
+                timeout=30               # 30 секунд хватит с головой
             )
-            print("✅ УСПЕХ! База подключена.")
+            print("✅ УСПЕХ! База Neon подключена")
         except Exception as e:
-            print(f"❌ ОШИБКА ПОДКЛЮЧЕНИЯ: {e}")
+            print(f"❌ ОШИБКА ПОДКЛЮЧЕНИЯ К БД: {e}")
             raise e
 
 async def close_db_pool():
+    """Закрытие пула при остановке"""
     global db_pool
     if db_pool:
         await db_pool.close()
@@ -64,7 +72,9 @@ FACULTIES = {
 # ===== ССЫЛКИ НА РАСПИСАНИЯ =====
 SCHEDULE_URLS = {
     "Нечетная неделя": {
-        "ДиА": { 1: "https://bb.usurt.ru/bbcswebdav/xid-21084187_1" },
+        "ДиА": {
+            1: "https://bb.usurt.ru/bbcswebdav/xid-21084187_1",
+        },
         "Механический факультет": {
             1: "https://bb.usurt.ru/bbcswebdav/xid-20933625_1",
             2: "https://bb.usurt.ru/bbcswebdav/xid-23861424_1",
@@ -158,6 +168,7 @@ SCHEDULE_URLS = {
 # ===== Функции работы с базой данных (ЧЕРЕЗ ПУЛ + КЭШ) =====
 
 async def create_tables():
+    """Создает таблицы в базе данных если они не существуют"""
     try:
         async with db_pool.acquire() as conn:
             await conn.execute('''
@@ -176,6 +187,9 @@ async def create_tables():
         print(f"❌ Ошибка создания таблиц: {e}")
 
 async def update_user_data(user_id, user_info):
+    """Обновляет или создает данные пользователя (БД + КЭШ)"""
+    
+    # 1. Сначала обновляем кэш (это моментально)
     USER_CACHE[user_id] = {
         'faculty': user_info['faculty'],
         'course': user_info['course'],
@@ -183,6 +197,8 @@ async def update_user_data(user_id, user_info):
         'username': user_info['username'],
         'full_name': user_info['full_name']
     }
+
+    # 2. Потом обновляем базу данных
     try:
         async with db_pool.acquire() as conn:
             await conn.execute('''
@@ -202,8 +218,13 @@ async def update_user_data(user_id, user_info):
         print(f"❌ Ошибка обновления данных пользователя в БД: {e}")
 
 async def remove_user_data(user_id):
+    """Удаляет данные пользователя (БД + КЭШ)"""
+    
+    # 1. Удаляем из кэша
     if user_id in USER_CACHE:
         del USER_CACHE[user_id]
+
+    # 2. Удаляем из БД
     try:
         async with db_pool.acquire() as conn:
             result = await conn.execute('DELETE FROM users WHERE user_id = $1', user_id)
@@ -213,8 +234,13 @@ async def remove_user_data(user_id):
         return False
 
 async def get_user_data(user_id):
+    """Получает данные пользователя (Сначала КЭШ, потом БД)"""
+    
+    # 1. ПРОВЕРЯЕМ КЭШ
     if user_id in USER_CACHE:
         return USER_CACHE[user_id]
+
+    # 2. Если в кэше пусто, идем в базу
     try:
         async with db_pool.acquire() as conn:
             row = await conn.fetchrow(
