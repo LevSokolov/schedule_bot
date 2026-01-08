@@ -25,21 +25,28 @@ GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-4805485452"))
 # ГЛОБАЛЬНЫЙ ПУЛ СОЕДИНЕНИЙ
 db_pool = None
 
+# 🔥 КЭШ ПОЛЬЗОВАТЕЛЕЙ В ПАМЯТИ
+# Структура: {user_id: {'faculty': ..., 'group': ...}}
+USER_CACHE = {}
+
 async def init_db_pool():
     """Инициализация пула соединений при старте бота"""
     global db_pool
     if db_pool is None:
-        # Настройка для Transaction Pooler (порт 6543)
-        # statement_cache_size=0 отключает подготовленные запросы, которые вызывают ошибки/тормоза
+        # Совет: Если используешь Transaction Pooler (6543), statement_cache_size=0 обязателен.
+        # Но лучше использовать Session Pooler или Direct Connection (5432) с малым max_size.
         db_pool = await asyncpg.create_pool(
             DATABASE_URL, 
             min_size=1, 
-            max_size=10,
-            command_timeout=60,
+            max_size=5,  # 🔥 Уменьшили до 5, чтобы не перегружать бесплатную Supabase
+            command_timeout=10, # Таймаут поменьше
             statement_cache_size=0, 
             ssl='require'
         )
         print("✅ Пул соединений с БД успешно создан")
+        
+        # 🔥 При старте можно загрузить активных пользователей в кэш (опционально),
+        # но для начала пусть кэш заполняется по мере обращений.
 
 async def close_db_pool():
     """Закрытие пула при остановке"""
@@ -48,7 +55,7 @@ async def close_db_pool():
         await db_pool.close()
         print("🛑 Пул соединений закрыт")
 
-# Структура факультетов
+# Структура факультетов (без изменений)
 FACULTIES = {
     "Механический факультет": "МФ",
     "Строительный факультет": "СФ",
@@ -59,107 +66,25 @@ FACULTIES = {
     "ДиА": "ДиА"
 }
 
-# ===== ССЫЛКИ НА РАСПИСАНИЯ =====
+# ===== ССЫЛКИ НА РАСПИСАНИЯ (Тут твой словарь SCHEDULE_URLS, оставь как был) =====
 SCHEDULE_URLS = {
+    # ... Вставь сюда свой большой словарь со ссылками ...
+    # Я сократил его для удобства чтения, но ты оставь свой полный код
     "Нечетная неделя": {
-        "ДиА": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-21084187_1",
-        },
-        "Механический факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-20933625_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23861424_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23862319_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23863115_1",
-            5: "https://bb.usurt.ru/bbcswebdav/xid-23863375_1",
-        },
-        "Строительный факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-20933630_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23861425_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23862320_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23863116_1",
-            5: "https://bb.usurt.ru/bbcswebdav/xid-23863376_1",
-        },
-        "Факультет управления процессами перевозок": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-20933635_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23861426_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23862321_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23863377_1",
-            5: "https://bb.usurt.ru/bbcswebdav/xid-23864226_1",
-        },
-        "Факультет экономики и управления": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-20933640_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23861427_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23862322_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23863121_1",
-        },
-        "Электромеханический факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-20933644_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23861428_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23862323_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23863126_1",
-            5: "https://bb.usurt.ru/bbcswebdav/xid-23863378_1",
-        },
-        "Электротехнический факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-20933649_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23861429_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23862324_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23863127_1",
-            5: "https://bb.usurt.ru/bbcswebdav/xid-23863379_1",
-        }
+        "ДиА": { 1: "https://bb.usurt.ru/bbcswebdav/xid-21084187_1" },
+        # ... остальные ссылки ...
     },
     "Четная неделя": {
-        "ДиА": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-23870736_1",
-        },
-        "Механический факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-23870737_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23870789_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23872118_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23879494_1",
-            5: "https://bb.usurt.ru/bbcswebdav/xid-23882477_1",
-        },
-        "Строительный факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-23872117_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23870790_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23872119_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23879495_1",
-            5: "https://bb.usurt.ru/bbcswebdav/xid-23883756_1",
-        },
-        "Факультет управления процессами перевозок": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-23870739_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23870791_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23872120_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23879496_1",
-            5: "https://bb.usurt.ru/bbcswebdav/xid-23886773_1",
-        },
-        "Факультет экономики и управления": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-23873014_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23870793_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23872121_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23879497_1",
-        },
-        "Электромеханический факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-23870741_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23870794_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23872122_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23879498_1",
-            5: "https://bb.usurt.ru/bbcswebdav/xid-23882478_1",
-        },
-        "Электротехнический факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-23870742_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23870795_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23872123_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23879499_1",
-            5: "https://bb.usurt.ru/bbcswebdav/xid-23883107_1",
-        }
+        # ... остальные ссылки ...
     }
 }
+# (Если у тебя код разбит по файлам, просто убедись, что переменная SCHEDULE_URLS на месте)
 
-# ===== Функции работы с базой данных (ЧЕРЕЗ ПУЛ) =====
+
+# ===== Функции работы с базой данных (С КЭШИРОВАНИЕМ) =====
 
 async def create_tables():
     """Создает таблицы в базе данных если они не существуют"""
-    # Используем пул для получения соединения
     try:
         async with db_pool.acquire() as conn:
             await conn.execute('''
@@ -178,7 +103,18 @@ async def create_tables():
         print(f"❌ Ошибка создания таблиц: {e}")
 
 async def update_user_data(user_id, user_info):
-    """Обновляет или создает данные пользователя"""
+    """Обновляет данные в БД и сразу в КЭШЕ"""
+    
+    # 1. Обновляем локальный кэш (мгновенно)
+    USER_CACHE[user_id] = {
+        'faculty': user_info['faculty'],
+        'course': user_info['course'],
+        'group': user_info['group_name'] if 'group_name' in user_info else user_info['group'],
+        'username': user_info['username'],
+        'full_name': user_info['full_name']
+    }
+
+    # 2. Обновляем базу данных (асинхронно)
     try:
         async with db_pool.acquire() as conn:
             await conn.execute('''
@@ -193,12 +129,17 @@ async def update_user_data(user_id, user_info):
                     full_name = $6,
                     registered_at = CURRENT_TIMESTAMP
             ''', user_id, user_info['faculty'], user_info['course'], 
-                user_info['group'], user_info['username'], user_info['full_name'])
+                user_info.get('group', user_info.get('group_name')), # Защита от разных ключей
+                user_info['username'], user_info['full_name'])
     except Exception as e:
-        print(f"❌ Ошибка обновления данных пользователя: {e}")
+        print(f"❌ Ошибка обновления данных пользователя в БД: {e}")
 
 async def remove_user_data(user_id):
-    """Удаляет данные пользователя"""
+    """Удаляет данные из БД и кэша"""
+    # Удаляем из кэша
+    if user_id in USER_CACHE:
+        del USER_CACHE[user_id]
+
     try:
         async with db_pool.acquire() as conn:
             result = await conn.execute('DELETE FROM users WHERE user_id = $1', user_id)
@@ -208,7 +149,13 @@ async def remove_user_data(user_id):
         return False
 
 async def get_user_data(user_id):
-    """Получает данные пользователя"""
+    """Получает данные пользователя (сначала из КЭША, потом из БД)"""
+    
+    # 1. Проверяем кэш (это занимает 0.00001 сек)
+    if user_id in USER_CACHE:
+        return USER_CACHE[user_id]
+
+    # 2. Если в кэше нет, идем в базу (медленно)
     try:
         async with db_pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -216,13 +163,16 @@ async def get_user_data(user_id):
                 user_id
             )
             if row:
-                return {
+                data = {
                     'faculty': row['faculty'],
                     'course': row['course'],
                     'group': row['group_name'],
                     'username': row['username'],
                     'full_name': row['full_name']
                 }
+                # Сохраняем в кэш на будущее
+                USER_CACHE[user_id] = data
+                return data
             return None
     except Exception as e:
         print(f"❌ Ошибка получения данных пользователя: {e}")
