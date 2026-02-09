@@ -123,7 +123,7 @@ SCHEDULE_URLS = {
         },
         "Механический факультет": {
             1: "https://bb.usurt.ru/bbcswebdav/xid-25279421_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-25269620_1",
+            2: "https://bb.usurt.ru/bbcswebdav/xid-25289526_1",
             3: "https://bb.usurt.ru/bbcswebdav/xid-23872118_1", #в бб старый
             4: "https://bb.usurt.ru/bbcswebdav/xid-23879494_1", #в бб старый
             5: "https://bb.usurt.ru/bbcswebdav/xid-23882477_1", #его в бб нет
