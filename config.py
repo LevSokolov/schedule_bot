@@ -73,7 +73,7 @@ FACULTIES = {
 SCHEDULE_URLS = {
     "Нечетная неделя": {
         "ДиА": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-21084187_1", #его в бб нет
+            1: "https://bb.usurt.ru/bbcswebdav/xid-25309681_1",
         },
         "Механический факультет": {
             1: "https://bb.usurt.ru/bbcswebdav/xid-25234801_1",
@@ -83,10 +83,10 @@ SCHEDULE_URLS = {
             5: "https://bb.usurt.ru/bbcswebdav/xid-23863375_1", #его в бб нет
         },
         "Строительный факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-20933630_1", #его в бб нет
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23861425_1", #его в бб нет
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23862320_1", #его в бб нет
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23863116_1", #его в бб нет
+            1: "https://bb.usurt.ru/bbcswebdav/xid-25309913_1",
+            2: "https://bb.usurt.ru/bbcswebdav/xid-25309914_1",
+            3: "https://bb.usurt.ru/bbcswebdav/xid-25309915_1",
+            4: "https://bb.usurt.ru/bbcswebdav/xid-25310877_1",
             5: "https://bb.usurt.ru/bbcswebdav/xid-23863376_1", #его в бб нет
         },
         "Факультет управления процессами перевозок": {
@@ -103,15 +103,15 @@ SCHEDULE_URLS = {
             4: "https://bb.usurt.ru/bbcswebdav/xid-23863121_1", #его в бб нет
         },
         "Электромеханический факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-20933644_1", #его в бб нет
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23861428_1", #его в бб нет
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23862323_1", #его в бб нет
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23863126_1", #его в бб нет
+            1: "https://bb.usurt.ru/bbcswebdav/xid-25309925_1",
+            2: "https://bb.usurt.ru/bbcswebdav/xid-25309926_1",
+            3: "https://bb.usurt.ru/bbcswebdav/xid-25309927_1",
+            4: "https://bb.usurt.ru/bbcswebdav/xid-25310882_1",
             5: "https://bb.usurt.ru/bbcswebdav/xid-23863378_1", #его в бб нет
         },
         "Электротехнический факультет": {
             1: "https://bb.usurt.ru/bbcswebdav/xid-25234803_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-23861429_1", #его в бб нет
+            2: "https://bb.usurt.ru/bbcswebdav/xid-25309928_1",
             3: "https://bb.usurt.ru/bbcswebdav/xid-25240075_1",
             4: "https://bb.usurt.ru/bbcswebdav/xid-25238198_1",
             5: "https://bb.usurt.ru/bbcswebdav/xid-23863379_1", #его в бб нет
@@ -122,44 +122,44 @@ SCHEDULE_URLS = {
             1: "https://bb.usurt.ru/bbcswebdav/xid-25276496_1",
         },
         "Механический факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-25279421_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-25289526_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23872118_1", #в бб старый
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23879494_1", #в бб старый
+            1: "https://bb.usurt.ru/bbcswebdav/xid-25449277_1",
+            2: "https://bb.usurt.ru/bbcswebdav/xid-25449278_1",
+            3: "https://bb.usurt.ru/bbcswebdav/xid-25449279_1",
+            4: "https://bb.usurt.ru/bbcswebdav/xid-25449280_1",
             5: "https://bb.usurt.ru/bbcswebdav/xid-23882477_1", #его в бб нет
         },
         "Строительный факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-23872117_1", #в бб старый
-            2: "https://bb.usurt.ru/bbcswebdav/xid-25269621_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-25280892_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-23879495_1", #в бб старый
+            1: "https://bb.usurt.ru/bbcswebdav/xid-25449281_1",
+            2: "https://bb.usurt.ru/bbcswebdav/xid-25449282_1",
+            3: "https://bb.usurt.ru/bbcswebdav/xid-25449283_1",
+            4: "https://bb.usurt.ru/bbcswebdav/xid-25449284_1",
             5: "https://bb.usurt.ru/bbcswebdav/xid-23883756_1", #его в бб нет
         },
         "Факультет управления процессами перевозок": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-25266161_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-25269628_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-25266162_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-25260515_1",
+            1: "https://bb.usurt.ru/bbcswebdav/xid-25449295_1",
+            2: "https://bb.usurt.ru/bbcswebdav/xid-25449296_1",
+            3: "https://bb.usurt.ru/bbcswebdav/xid-25449297_1",
+            4: "https://bb.usurt.ru/bbcswebdav/xid-25449298_1",
             5: "https://bb.usurt.ru/bbcswebdav/xid-23886773_1", #его в бб нет
         },
         "Факультет экономики и управления": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-25275310_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-25275311_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-25266951_1",
+            1: "https://bb.usurt.ru/bbcswebdav/xid-25449703_1",
+            2: "https://bb.usurt.ru/bbcswebdav/xid-25449704_1",
+            3: "https://bb.usurt.ru/bbcswebdav/xid-25449705_1",
             4: "https://bb.usurt.ru/bbcswebdav/xid-23879497_1", #его в бб нет
         },
         "Электромеханический факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-23870741_1", #в бб старый
-            2: "https://bb.usurt.ru/bbcswebdav/xid-25269634_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-23872122_1", #в бб старый
-            4: "https://bb.usurt.ru/bbcswebdav/xid-25276741_1",
+            1: "https://bb.usurt.ru/bbcswebdav/xid-25449706_1",
+            2: "https://bb.usurt.ru/bbcswebdav/xid-25449707_1",
+            3: "https://bb.usurt.ru/bbcswebdav/xid-25449708_1",
+            4: "https://bb.usurt.ru/bbcswebdav/xid-25449709_1",
             5: "https://bb.usurt.ru/bbcswebdav/xid-23882478_1", #его в бб нет
         },
         "Электротехнический факультет": {
-            1: "https://bb.usurt.ru/bbcswebdav/xid-25273412_1",
-            2: "https://bb.usurt.ru/bbcswebdav/xid-25283569_1",
-            3: "https://bb.usurt.ru/bbcswebdav/xid-25275733_1",
-            4: "https://bb.usurt.ru/bbcswebdav/xid-25260516_1",
+            1: "https://bb.usurt.ru/bbcswebdav/xid-25449710_1",
+            2: "https://bb.usurt.ru/bbcswebdav/xid-25449711_1",
+            3: "https://bb.usurt.ru/bbcswebdav/xid-25449712_1",
+            4: "https://bb.usurt.ru/bbcswebdav/xid-25449713_1",
             5: "https://bb.usurt.ru/bbcswebdav/xid-23883107_1", #его в бб нет
         }
     }
@@ -261,5 +261,6 @@ async def get_user_data(user_id):
     except Exception as e:
         print(f"❌ Ошибка получения данных пользователя: {e}")
         return None
+
 
 
