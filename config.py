@@ -182,6 +182,18 @@ async def create_tables():
                     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            # Список групп, которые бот когда-либо видел в расписании.
+            # Нужен, чтобы летом (когда файлов расписания нет) кнопки выбора
+            # группы всё равно были и регистрация не вставала колом.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS known_groups (
+                    faculty TEXT NOT NULL,
+                    course TEXT NOT NULL,
+                    group_name TEXT NOT NULL,
+                    seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (faculty, course, group_name)
+                )
+            ''')
             print("✅ Таблицы в базе данных созданы/проверены")
     except Exception as e:
         print(f"❌ Ошибка создания таблиц: {e}")
@@ -264,3 +276,38 @@ async def get_user_data(user_id):
 
 
 
+
+# ===== ЗАПОМИНАНИЕ СПИСКА ГРУПП =====
+# Летом файлов расписания на сайте нет, и раньше бот из-за этого не мог
+# показать кнопки с группами — регистрация застревала на выборе курса.
+# Теперь список групп сохраняется в базе и переживает каникулы.
+
+async def save_known_groups(faculty: str, course, groups: list):
+    """Запоминает список групп курса."""
+    if not groups:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.executemany('''
+                INSERT INTO known_groups (faculty, course, group_name)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (faculty, course, group_name)
+                DO UPDATE SET seen_at = CURRENT_TIMESTAMP
+            ''', [(faculty, str(course), g) for g in groups])
+    except Exception as e:
+        print(f"❌ Не удалось сохранить список групп: {e}")
+
+
+async def load_known_groups(faculty: str, course) -> list:
+    """Достаёт запомненный список групп курса."""
+    try:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT group_name FROM known_groups
+                WHERE faculty = $1 AND course = $2
+                ORDER BY group_name
+            ''', faculty, str(course))
+            return [r['group_name'] for r in rows]
+    except Exception as e:
+        print(f"❌ Не удалось прочитать список групп: {e}")
+        return []

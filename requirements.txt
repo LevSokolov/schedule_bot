@@ -1,8 +1,6 @@
 aiogram==3.*
-pandas
 xlrd
 openpyxl
 python-dotenv
 asyncpg
 aiohttp
-
